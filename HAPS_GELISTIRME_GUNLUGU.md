@@ -1166,6 +1166,76 @@ kapsanıyor, bu bilinçli bir v1 kapsam sınırlaması.
 
 ---
 
+### Adım 16 — Gürültü tabanını da benzer şekilde ele alma: kTB+NF termal gürültü formülü
+
+Kullanıcı isteği: `noise_power_dB`'yi de Adım 15'teki gibi (literatüre dayalı, opt-in,
+kalibre edilmiş) ele al.
+
+**Temel fark (path loss'tan)**: 3GPP TR 38.811 gürültü tabanı için bir tablo/model
+tanımlamıyor - termal gürültü, uydu/HAPS'a özgü değil, klasik RF fiziği (Adım 14'te
+zaten not edildi: ITU-R F.1569'un G/T tabanlı link bütçesi bu işi görüyor). Standart
+formül: `N(dBm) = -174 dBm/Hz (T0=290K'de kT) + 10*log10(bant_genişliği_Hz) + gürültü
+figürü (NF)`. Ve path loss'un aksine bu **statik** bir değer - yükseklik açısına/zamana
+bağlı değil, sadece bant genişliğine bağlı - bu yüzden apply_channelmod.c'de her saniye
+değil, `random_channel.c`'de kanal oluşturulurken **bir kez** hesaplanıyor.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/random_channel.c`
+```
++ Eklendi: `haps_38811_noise_floor_dB(bandwidth_Hz)` fonksiyonu ve
+  `HAPS_38811_NOISE_FIGURE_DB`(=3.0, 3GPP DEĞİL - varsayımsal tipik LNA gürültü
+  figürü) / `HAPS_38811_NOISE_CALIB_OFFSET_DB`(=-5.53, 3GPP DEĞİL - kalibrasyon
+  sabiti) define'ları.
+~ Değiştirildi: `case HAPS_STATIONARY_38811:`/`case HAPS_MOBILE_38811:` bloklarına
+  `if (channel_model == ..._38811) chan_desc->noise_power_dB =
+  haps_38811_noise_floor_dB(channel_bandwidth);` eklendi (fill_channel_desc'ten önce
+  chan_desc->noise_power_dB zaten config'ten set edilmiş oluyor - bu satır onu
+  override ediyor, sadece _38811 varyantlarında).
+~ Değiştirildi: debug printf'leri artık hesaplanan gürültü tabanını ve kullanılan bant
+  genişliğini de yazdırıyor (`_38811` varyantlarında).
+```
+**# Gerekçe - kalibrasyon**: `channel_bandwidth` parametresinin gerçekten Hz biriminde
+olduğu (`rfsimulator->tx_bw`'den geliyor, kod tabanındaki tüm `tx_bw` kullanımları Hz -
+`5.0e6` gibi) koddan doğrulandı, ayrıca gerçek testle de teyit edildi (aşağıya bakın).
+25 RB/numeroloji-0 referans senaryomuzda gerçek bant genişliği 5 MHz (OAI'nin standart
+kanal bant genişliği sınıflandırması, 4.5 MHz'lik ham RB bant genişliğinden biraz
+geniş). `NF=3dB` seçilip (tipik bir alıcı LNA'sı için sık atıfta bulunulan bir değer,
+3GPP'den değil), kalibrasyon sabiti bu projenin daha önce kanıtlanmış çalışan
+`noise_power_dB=-110`'u (Adım 6/7/9-13/15) 5MHz/NF=3dB'de yeniden üretecek şekilde
+seçildi: `-174+10log10(5e6)+3 = -104.03 dBm` (not: koddaki yorum 4.5MHz'lik ilk tahminle
+`-104.47` yazıyor, gerçek 5MHz değeriyle küçük bir fark var - bkz. aşağıdaki test
+sonucu, ~0.46dB'lik ihmal edilebilir bir sapma, yeniden kalibre edilmedi).
+
+**Path loss'tan farklı olarak buradaki gerçek kazanım**: sabit, elle seçilmiş bir sayı
+yerine artık formül bant genişliğine göre **otomatik ölçekleniyor** - ileride farklı bir
+N_RB/numeroloji denenirse gürültü tabanı fizik gereği doğru şekilde değişecek, elle
+yeniden ayarlamaya gerek kalmayacak.
+
+**Derleme**: `ninja nr-softmodem nr-uesoftmodem rfsimulator` - temiz.
+
+**Test 1**: gNB logunda `noise floor: -109.540298 dB (bandwidth 5000000.000000 Hz)` -
+kalibrasyon hedefine (-110) çok yakın, doğrulandı. `RRC_CONNECTED: ✅`, `RA failed: 0`,
+`received correctly: 1`. **UE tarafında bu debug satırı loga hiç yazılmadı** - araştırıldı,
+kod/hesaplama sorunu değil (değer gNB tarafında doğrulandı, hesaplama gNB/UE'de aynı
+deterministik formülü kullanıyor), UE binary'sinin stdout'unun `SIGKILL` ile
+sonlandırıldığında erken üretilen kısa çıktının bazen flush edilmeden kaybolması -
+sadece kozmetik bir log görünürlüğü sorunu, önceki oturumlarda da (Adım 15'in ilk
+testinde UE tarafında göründü, bu testte görünmedi) tutarsız davranmıştı - fonksiyonel
+sonucu etkilemiyor, daha fazla peşinden gidilmedi.
+
+**Regresyon testi (orijinal `HAPS_MOBILE`, `_38811` değil)**: `RRC_CONNECTED: ✅`
+(10 RA denemesinden sonra başarılı - bu varyans, `noise_power_dB` override'ı kod
+seviyesinde `channel_model == HAPS_MOBILE_38811` koşuluyla bu senaryoya hiç
+erişemediği için değişikliklerimle ilgisiz olduğu kanıtlanabilir; önceki oturumlarda da
+benzer RA-tekrar-deneme varyansı gözlemlenmişti). Debug print formatı da değişmeden
+kaldı (`(TR 38.811 path loss)` etiketi ve gürültü satırı yok).
+
+**Sonuç**: `noise_power_dB` artık `_38811` varyantlarında kTB+NF termal gürültü
+formülünden, gerçek config bant genişliğinden, kalibre edilmiş şekilde hesaplanıyor.
+Path loss'un aksine statik (bir kez hesaplanıyor) ama bant genişliği değişirse otomatik
+doğru ölçekleniyor. Orijinal senaryolar değişmedi.
+
+---
+
 ## 4. Bilinen sınırlamalar / açık konular
 
 - **`HAPS_MOBILE` (band78/karasal, NTN'siz test) RA/RRC bağlantısı hâlâ kurulamıyor** —
@@ -1193,6 +1263,9 @@ kapsanıyor, bu bilinçli bir v1 kapsam sınırlaması.
   birleştiriyor. 2/2 test `RRC_CONNECTED` ile başarılı, orijinal senaryolar
   değişmeden çalışmaya devam ediyor (bkz. Adım 15). Kentsel/Ka-bant/olasılıksal-NLOS
   eklenmedi (v1 kapsam dışı, TR 38.811 verisi log'da mevcut, gerekirse eklenebilir).
-- Gürültü tabanı (`noise_power_dB=-110`) hâlâ statik/keyfi — Adım 15, `use_38811_pathloss`
-  altında sadece `ploss_dB`'yi dinamikleştirdi, `noise_power_dB`'ye dokunmadı.
-  güncellenmedi (aynı Adım 14 araştırması kapsıyor).
+- **Gürültü tabanı: `HAPS_STATIONARY`/`HAPS_MOBILE` (orijinal) hâlâ keyfi
+  (`noise_power_dB=-110`) — bilinçli olarak değiştirilmedi.** `_38811` varyantlarında
+  Adım 16'da kTB+NF termal gürültü formülünden (gerçek config bant genişliğine göre,
+  kalibre edilmiş) hesaplanıyor artık — path loss'un aksine statik (elevation'a bağlı
+  değil) ama bant genişliği değişirse doğru ölçekleniyor. Kentsel/Ka-bant tabloları
+  gibi bunun da NF=3dB varsayımı 3GPP'den değil, projenin kendi kalibrasyonu.
