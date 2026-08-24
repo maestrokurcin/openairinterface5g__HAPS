@@ -1007,6 +1007,165 @@ HAPS simülasyonu) ve şimdi elde edildi.
 
 ---
 
+### Adım 14 — Yol kaybı/gürültü tabanı için literatür taraması (kod değişikliği yok)
+
+Kullanıcı isteği: `ploss_dB`/`noise_power_dB` konusunda gerçek değer aramak yerine önce
+HAPS için yol kaybı hesabında literatürde ne öngörüldüğünü araştırmak.
+
+**[Bilgi]** Web taraması sonucu, `radio/rfsimulator/apply_channelmod.c`'deki tek-sayılık
+`ploss_dB`/`noise_power_dB` modeliyle literatür arasında **yapısal bir fark** olduğu
+netleşti:
+
+- **3GPP TR 38.811 §6.6.2** (HAPS, LEO, GEO ile birlikte bu TR'nin üç resmi referans
+  platformundan biri) toplam yol kaybını 4 bileşenin toplamı olarak modelliyor:
+  `PL_total = PL_b (FSPL + Shadow Fading + Clutter Loss) + PL_g (atmosferik gaz,
+  ITU-R P.676) + PL_s (sintilasyon, ITU-R P.618) + PL_e (bina girişi, açık alanda ~0)`.
+  FSPL kısmı Adım 6'da elle doğru hesaplanmıştı (`20log(d)+20log(f)+32.44`); Shadow
+  Fading/Clutter Loss ise kapalı-form değil, **yükseklik açısına (10°-90°) ve
+  senaryoya (kırsal/banliyö/kentsel, S/Ka-bant) göre tablo halinde** verilen istatistiksel
+  değerler (Tablo 6.6.2-1). Atmosferik gaz/sintilasyon terimleri kaynağın kendi ifadesiyle
+  "yalnızca düşük yükseklik açılarında ve/veya yüksek güneş aktivitesinde önemli" —
+  bizim senaryomuz (~90° yükseklik açılı, sabit HAPS) için ihmal edilebilir düzeyde,
+  bu da rfsim'in bunları hiç modellememesini literatür açısından haklı çıkarıyor.
+- **ITU-R F.1569/F.1570**: HAPS'a özel, 20 km irtifa için tasarlanmış referans link
+  bütçesi rehberleri. Yol kaybı tek başına SNR vermiyor — `C/N0 = EIRP - PL_total +
+  G/T - k(Boltzmann)` için ayrıca EIRP (verici gücü+anten kazancı) ve G/T (alıcı anten
+  kazancı/gürültü sıcaklığı) gerekiyor. F.1569 örnek olarak %99.8 kullanılabilirlik için
+  12.2 dB'lik ATPC (otomatik verici güç kontrolü) marjı veriyor.
+
+**Sonuç/açık konu**: rfsim'in `ploss_dB` (frekans/açı bağımsız, tek düz genlik-çarpanı)
+ve `noise_power_dB` (kalibre edilmemiş iç birim) ikilisiyle bu literatürü gerçekten
+birleştirmenin iki yolu var — (A) belirli bir senaryo için TR 38.811 tablosundan
+`PL_total`'ı ve varsayımsal bir terminal tasarımıyla (anten kazancı, verici gücü,
+gürültü sıcaklığı) net SNR'ı hesaplayıp bunu tek bir statik `ploss_dB`/`noise_power_dB`
+çiftine çevirmek (küçük kapsam, ama terminal tasarım varsayımları gerektiriyor), (B)
+TR 38.811'in yükseklik-açısı/senaryo bağımlı tablo modelini gerçekten rfsim koduna yeni
+bir kanal modeli olarak eklemek (büyük kapsam, Phase 2/3 mimari sorusuyla aynı
+büyüklükte). Hangi yönde ilerleneceği henüz kullanıcı tarafından seçilmedi.
+
+**Kaynaklar**: X. Lin et al., "5G from Space: An Overview of 3GPP Non-Terrestrial
+Networks", arXiv:2103.09156; "High Altitude Platform Stations (HAPS): Architecture and
+System Performance", arXiv:2103.03431; ITU-R F.1569 (05/2002); ITU-R F.1570-1.
+
+---
+
+### Adım 15 — TR 38.811'in tablo modelini gerçekten koda ekleme (Seçenek B), tam çalışır durumda
+
+Kullanıcı isteği: Adım 14'ün "büyük kapsam" seçeneğini uygula — TR 38.811'in yükseklik
+açısı/senaryo bağımlı yol kaybı tablosunu gerçek kod olarak ekle. İki alt karar
+`AskUserQuestion` ile netleştirildi: kazanç bütçesi **çalışan bir değere kalibre
+edilecek**, ve yeni model **ayrı/opt-in** olacak (mevcut çalışan config'lere dokunmadan).
+
+**Kaynak veri**: 3GPP TR 38.811 V15.1.0'ın resmi PDF'i indirilip (`pdftotext` ile)
+§6.6.2'nin tam tabloları (Tablo 6.6.1-1 LOS olasılığı, Tablo 6.6.2-1/2/3 shadow
+fading/clutter loss — 3 senaryo × 2 bant × 9 açı) doğrulanarak çıkarıldı; sadece
+"kırsal/banliyö, S-bant, LOS sigma_SF" sütunu (9 değer, 10°-90°) koda gömüldü, geri
+kalan tablolar (kentsel/yoğun-kentsel/Ka-bant/NLOS) log'da kayıtlı ama şimdilik
+kullanılmıyor (bkz. aşağıdaki tasarım kararları).
+
+**Geometri analizi** (mevcut koddan, `random_channel.c:1671/1707-1708`): `HAPS_STATIONARY`
+irtifa=20km, loiter yarıçapı=0 → **her zaman α=90°** (tam tepede, sabit). `HAPS_MOBILE`
+irtifa=20km, loiter yarıçapı=2km, yatay ofset `pos_sat_x=r+r·cos(wt)` → 0-4000m arası
+değişiyor → **α, 90° ile atan(20000/4000)=78.7° arasında sürekli değişiyor** - yani
+tabloyu gerçekten dinamik kullanan, anlamlı bir senaryo. Frekans band254 `rf_freq=
+2488400000 Hz`≈2.49GHz → S-bant sütunu doğru seçim.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/sim.h`
+```
++ Eklendi: SCM_t enum'una HAPS_STATIONARY_38811, HAPS_MOBILE_38811 (SAT_LEO_TRANS/REGEN
+  ve HAPS_STATIONARY/MOBILE'ın izlediği checklist mirror'landı: enum tanımı,
+  CHANNELMOD_MAP_INIT isim tablosu).
++ Eklendi: channel_desc_t struct'ına `bool use_38811_pathloss;` alanı.
+```
+**# Gerekçe:** Mevcut HAPS_STATIONARY/HAPS_MOBILE'a hiç dokunmadan, tamamen ayrı/opt-in
+yeni model tipleri olarak eklendi (kullanıcı kararı) - bu iki enum aktive olmadıkça
+`use_38811_pathloss` hep false kalır, davranış değişikliği sıfır.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/random_channel.c`
+```
+~ Değiştirildi: case HAPS_STATIONARY: ve case HAPS_MOBILE: bloklarına
+  `case HAPS_STATIONARY_38811:`/`case HAPS_MOBILE_38811:` fallthrough eklendi (ayni
+  kinematik, ek olarak `chan_desc->use_38811_pathloss = (channel_model == ..._38811)`);
+  debug printf'leri "(TR 38.811 path loss)" etiketiyle güncellendi.
+~ Değiştirildi: identity-matrix/AWGN-benzeri kanal matrisi kısayolu (satır ~1832) ve
+  debug/telnet çıktı koşulu (satır ~2138) - iki yeni enum'u da OR zincirine ekledi.
+```
+**# Gerekçe:** LEO'nun 9 konumluk checklist'iyle aynı desen (memory notu
+`oai-leo-to-haps-adaptation`) - bir enum eklendiğinde her switch/if zincirinde
+mirror'lanması gerekiyor, aksi halde yeni model tipi sessizce yanlış davranır (ör.
+identity-matrix kısayolu atlanırsa kanal matrisi yanlış hesaplanır).
+
+**[Dosya]** `radio/rfsimulator/apply_channelmod.c`
+```
++ Eklendi: `#include <math.h>` (asin/lround için, log10/sqrt/pow zaten dolaylı
+  erişilebiliyordu ama asin/lround için garanti gerekiyordu).
++ Eklendi: `haps_38811_los_sigma_sf_dB[9]` (Tablo 6.6.2-3 kırsal/banliyö S-bant LOS
+  sütunu, TR 38.811'den birebir), `HAPS_38811_GAIN_BUDGET_DB` (146.39 dB - AŞAĞIYA BAKIN,
+  3GPP degeri DEGIL, kalibrasyon sabiti), ve `haps_38811_path_loss_dB()` fonksiyonu:
+  gercek eğik mesafeden (mevcut delay/Doppler hesabinin zaten kullandığı
+  `dist_ue_sat`/`dist_sat_ue`) elevation açısını (`asin(irtifa/mesafe)`) çıkarır, en
+  yakın 10°'lik referans satırını tablodan okur, FSPL'i TR 38.811 S6.6-2 formülüyle
+  (`32.45+20log10(fc_GHz)+20log10(d_m)`) hesaplar, rastgele shadow fading ekler
+  (`gaussZiggurat`, zaten dosyada mevcut), CL=0 (zorunlu LOS - AŞAĞIYA BAKIN), ve
+  kazanç bütçesini ekleyip net rfsim ploss_dB döndürür.
+~ Değiştirildi: HAPS geometri dalının giriş koşulu (satır ~24), SIB19 güncelleme
+  koşulu (~191-192), `is_haps` bayrağı (~203) - iki yeni enum'u da kapsayacak şekilde.
+~ Değiştirildi: UL ve DL delay/Doppler loglarının bulunduğu saniyede-bir çalışan blok
+  (satır ~214-226 ve ~310-321) - `use_38811_pathloss` true ise
+  `channelDesc->path_loss_dB`'yi bu blokta güncelliyor (mevcut log-throttle
+  mekanizmasını yeniden kullanarak, shadow fading'in fiziksel olarak "yavaş
+  değişen büyük ölçekli" bir nicelik olması gerektiğiyle de tutarlı - her örnekte
+  değil, saniyede bir yeniden çekiliyor).
+```
+**# Gerekçe - tasarım basitleştirmeleri (bilinçli, dokümante edilmiş)**:
+- **Zorunlu LOS, NLOS/CL hiç kullanılmadı**: bizim gerçek geometrimizde (α her zaman
+  78.7°-90° arası) TR 38.811'in kendi Tablo 6.6.1-1'i LOS olasılığını zaten %95-99.8
+  veriyor - olasılıksal bir NLOS-durumu çekimi (ayrı bir RNG-state tasarımı gerektirir)
+  için kazanılacak gerçekçilik, eklenecek karmaşıklığa değmedi. TR 38.811'in kendi
+  kuralı da LOS durumunda CL=0 zaten.
+- **Kazanç bütçesi kalibrasyonu**: `FSPL(20000m, 2.4884GHz) = 32.45+20log10(2.4884)+
+  20log10(20000) = 126.39 dB`; α=90°'de (ortalama shadow fading=0) bu projenin daha
+  önce kanıtlanmış çalışan net değerini (+20dB, Adım 6/7/9-13) yeniden üretmek için
+  `gain_budget = 20.0+126.39 = 146.39 dB` seçildi. Bu **3GPP'den gelen bir değer
+  değil** - kodda ve burada açıkça böyle etiketlendi.
+
+**[Dosya]** `haps_test/gnb.haps_mobile_ntn_38811.conf`, `haps_test/nrue.haps_mobile_ntn_38811.conf`
+— **yeni oluşturuldu**: Adım 13'ün kanıtlanmış çalışan `gnb.haps_mobile_ntn.conf`/
+`nrue.haps_mobile_ntn.conf` çiftinin birebir kopyası, sadece `type = "HAPS_MOBILE"` →
+`type = "HAPS_MOBILE_38811"` değişti (en dinamik/anlamli senaryo seçildi, çünkü
+HAPS_MOBILE'ın gerçekten değişen α'sı tabloyu fiilen egzersiz ediyor).
+
+**Derleme**: `ninja nr-softmodem`, `ninja rfsimulator`, `ninja nr-uesoftmodem` - hepsi
+temiz derlendi, hata/uyarı yok.
+
+**Test 1 (yeni `_38811` senaryosu, 30s)**: `TR 38.811 path loss (uplink/downlink): net
+ploss_dB = ...` logları görüldü, gerçekten dinamik değerler (18.5-24.6 dB arası,
+kalibrasyon hedefi +20dB civarında dağılmış - beklenen shadow fading gürültüsü + α
+değişimi). Sonuç: `RA failed: 0`, `received correctly: 1`, `RRC_CONNECTED: ✅` (ilk
+denemede).
+
+**Test 2 (aynı senaryo, tekrar, 30s)**: Aynı sonuç - `RA failed: 0`, `received
+correctly: 1`, `RRC_CONNECTED: ✅`. **2/2 tekrarlanabilir.**
+
+**Regresyon testi (orijinal, değiştirilmemiş `gnb.haps_mobile_ntn.conf`+
+`nrue.haps_mobile_ntn.conf`, HAPS_MOBILE - _38811 değil)**: İlk denemede UE
+`Assertion (ret == 0) failed! In threadCreate() common/utils/system.c:273, Error in
+pthread_setname_np(): ret: 2, errno: 2` ile çöktü - **bu, değişikliklerimle ilgisiz bir
+ortam kaynaklı geçici hata** (thread adlandırma, `common/utils/system.c` genel bir
+utility, HAPS/sim.h/apply_channelmod.c'ye hiç dokunmuyor). Hemen tekrar denendi:
+**İkinci denemede temiz çalıştı** (`RRC_CONNECTED: ✅`, `RA failed: 0`, `received
+correctly: 1`, ardından kararlı DL/UL HARQ trafiği) - orijinal Adım 13 sonucu
+**bozulmadı**, flaky bir ortam hatasıydı.
+
+**Sonuç**: TR 38.811'in gerçek yol kaybı modeli artık koda gömülü, opsiyonel
+(`HAPS_STATIONARY_38811`/`HAPS_MOBILE_38811`) ve doğrulanmış çalışır durumda. Mevcut
+kanıtlanmış senaryolar (`HAPS_STATIONARY`/`HAPS_MOBILE`) hiç değişmedi. Kentsel/
+yoğun-kentsel/Ka-bant/NLOS tabloları (§6.6.2-1/2, ve olasılıksal LOS/NLOS durumu)
+gelecekte istenirse eklenebilir - şu an sadece kırsal/banliyö+S-bant+zorunlu-LOS
+kapsanıyor, bu bilinçli bir v1 kapsam sınırlaması.
+
+---
+
 ## 4. Bilinen sınırlamalar / açık konular
 
 - **`HAPS_MOBILE` (band78/karasal, NTN'siz test) RA/RRC bağlantısı hâlâ kurulamıyor** —
@@ -1024,10 +1183,16 @@ HAPS simülasyonu) ve şimdi elde edildi.
   `nrue.haps_mobile_ntn.conf`) senaryolarda ilk-denemede `RRC_CONNECTED` elde ediliyor.
 - **`docker-compose.yaml` düzeltilmedi** — Adım 2'de tespit edilen `--conf_file` ve
   `chan_mod`/`chanmod` hataları hâlâ duruyor, Docker akışına geçilirse ele alınmalı.
-- **Yol kaybı hâlâ keyfi bir değerde (`ploss_dB=20`)** — Adım 6'da gerçek 20 km FSPL
-  (129.64 dB) hesaplanıp denendi, ama saf kayıp olarak uygulanınca bağlantı tamamen
-  koptu (rfsim bunu telafi edecek bir tx/rx anten kazancı modellemiyor), bu yüzden geri
-  alındı. Gerçekçi bir değer için FSPL'in üzerine gerçekçi bir tx+rx kazanç bütçesi
-  eklenmesi gerekiyor — henüz yapılmadı, kullanıcı kararı bekleniyor.
-- Gürültü tabanı (`noise_power_dB=-110`) da hâlâ keyfi seçilmiş durumda,
-  güncellenmedi.
+- **Yol kaybı: `HAPS_STATIONARY`/`HAPS_MOBILE` (orijinal) hâlâ keyfi bir değerde
+  (`ploss_dB=20`) — bilinçli olarak değiştirilmedi.** Adım 14'te literatür taraması
+  (3GPP TR 38.811 + ITU-R F.1569/F.1570), Adım 15'te **büyük kapsam** seçildi ve
+  gerçekten uygulandı: `HAPS_STATIONARY_38811`/`HAPS_MOBILE_38811` adında **ayrı,
+  opt-in** yeni model tipleri, TR 38.811 §6.6.2'nin gerçek FSPL+shadow fading modelini
+  (kırsal/banliyö, S-bant, zorunlu LOS) her saniye gerçek geometriden yeniden
+  hesaplıyor, kalibre edilmiş (3GPP'den değil) bir kazanç bütçesiyle (146.39 dB)
+  birleştiriyor. 2/2 test `RRC_CONNECTED` ile başarılı, orijinal senaryolar
+  değişmeden çalışmaya devam ediyor (bkz. Adım 15). Kentsel/Ka-bant/olasılıksal-NLOS
+  eklenmedi (v1 kapsam dışı, TR 38.811 verisi log'da mevcut, gerekirse eklenebilir).
+- Gürültü tabanı (`noise_power_dB=-110`) hâlâ statik/keyfi — Adım 15, `use_38811_pathloss`
+  altında sadece `ploss_dB`'yi dinamikleştirdi, `noise_power_dB`'ye dokunmadı.
+  güncellenmedi (aynı Adım 14 araştırması kapsıyor).
