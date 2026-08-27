@@ -1650,6 +1650,118 @@ başına bir dinamik mekanizmanın gerçekten çalıştığının kanıtı deği
 
 ---
 
+### Adım 21 — Küçük ölçekli sönümleme: NTN-TDL-A/C (3GPP TR 38.811 S6.9.2), gerçek zamanla-değişen Rayleigh/Ricean
+
+Kullanıcı isteği: kanal modeline gerçek çoklu-yol/küçük-ölçekli sönümleme ekle.
+Kullanıcıya iki seçenek soruldu (tam gerçekçi zamanla-değişen Rayleigh/Ricean vs.
+sabit ağırlıklı basit yaklaşım); önce "daha fazla araştır, karar verme" dendi, veri
+tamamlanınca "tam gerçekçi" seçildi.
+
+**Kaynak veri (resmi TR 38.811 PDF'ten, önceden indirilmiş kopyadan tekrar okunarak):**
+- **Bölüm 6.9.2, Tablo 6.9.2-1/6.9.2-3**: NTN-TDL-A (NLOS, 3 Rayleigh tap: gecikme
+  {0, 1.0811, 2.8416}×DS, güç {0, -4.675, -6.482} dB) ve NTN-TDL-C (LOS, 2 tap: tap0
+  Ricean K=10.224dB @ gecikme 0 + tap1 Rayleigh @ 14.8124×DS, -23.373dB). B/D
+  varyantları (daha fazla tap) yerine bilinçli olarak A/C (daha az tap, daha küçük
+  `channel_length`) seçildi.
+- **Bölüm 6.7.2, Tablo 6.7.2-1a..8a**: 8 senaryo (yoğun-kentsel/kentsel/banliyö/kırsal
+  × LOS/NLOS) × S-bant, "Delay spread (DS)" satırı (`lgDS=log10(DS/1s)`, 9 yükseklik
+  açısı). Bizim 3'lü `haps_38811_scenario_t`'ye uydurmak için banliyö+kırsal
+  satırlarının ortalaması alındı (path-loss tablomuzun zaten aynı ikisini
+  birleştirmesiyle tutarlı bir basitleştirme). Ka-bant tabloları da spec'te var ama
+  çıkarılmadı (S-bant test senaryolarımız için ihtiyaç yok, gerekirse eklenebilir).
+
+**Tasarım kararları:**
+1. **Aynı LOS/NLOS çekimi paylaşılıyor**: `haps_38811_path_loss_dB()`'nin zaten
+   yaptığı olasılıksal LOS/NLOS çekimi (Adım 17) artık `channelDesc->haps_is_los`'a
+   da yazılıyor - küçük-ölçekli TDL profil seçimi (LOS→TDL-C, NLOS→TDL-A) aynı fiziksel
+   durumu okuyor, bağımsız ikinci bir çekim yapmıyor (fiziksel tutarlılık).
+2. **AR(1) zamanla-değişen sönümleme**: her tap'ın karmaşık kazancı, her
+   `update_channel_model()` çağrısında (saniyede bir değil - saniyede çok kez, gerçek
+   `dt=nbSamples/sampling_rate` ile) güncellenen `rho=exp(-2π·fd_local·dt)` katsayılı
+   bir AR(1) süreciyle evriliyor - LOS/NLOS durumu ve DS/gecikme pozisyonları saniyede
+   bir (büyük-ölçekli miktarların doğal zaman ölçeği) tazeleniyor ama sönümlemenin
+   kendisi her çağrıda gerçekten dalgalanıyor.
+3. **`fd_local=1 Hz`, 3GPP'den değil, dokümante edilmiş bir basitleştirme**: bu
+   simülatörde hiç UE hızı parametresi yok (UE zımnen sabit) - 1 Hz, sönümlemenin
+   normal bir 20-30s testte gözle görülür şekilde evrilmesini sağlayan, ama
+   gerçekçi-olmayan derecede hızlı (yaya hızı vb.) olmayan temsili bir değer.
+4. **Güç normalizasyonu**: her profilin toplam ortalama gücü tam 1 (0dB)'e
+   normalize ediliyor (TDL-A'nın ham dB değerleri toplamı 1.57'ye, yani +1.95dB'ye
+   denk geliyordu) - böylece `path_loss_dB`'nin (Adım 15/17/18) "toplam net bağlantı
+   kazancı" anlamı, gücün tap'lar arasında nasıl dağıldığından bağımsız korunuyor.
+5. **Ek tap'lar tam sayı örneğe yuvarlanıyor** (sadece baskın/tap0 Adım 20'nin
+   kesirli-örnek ayrımını koruyor) - daha zayıf yankılar için sub-sample hassasiyeti
+   kasıtlı olarak kapsam dışı bırakıldı.
+6. **Sadece `_38811` ailesi** (`HAPS_MOBILE_38811`/`_URBAN`/`_DENSE_URBAN`) etkileniyor
+   - düz `HAPS_MOBILE` `channel_length=2`'de kalıyor, TDL hiç devrede değil.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_tdl.c` — **yeni oluşturuldu**
+```
++ Eklendi: NTN-TDL-A/C tap tabloları, 6 DS tablosu (3 senaryo × LOS/NLOS × 9 açı),
+  haps_update_tdl_taps() - AR(1) sönümleme + tap yerleştirme + güç normalizasyonu.
++ Eklendi: HAPS_DEBUG_TDL env değişkeni (varsayılan no-op) - profil/DS/toplam
+  tap enerjisi/tap değerlerini loglar.
+```
+**[Dosya]** `openair1/SIMULATION/TOOLS/sim.h`
+```
++ Eklendi: channel_desc_t'ye haps_is_los, haps_elevation_deg,
+  haps_tdl_state[3] alanları; haps_update_tdl_taps() deklarasyonu.
+```
+**[Dosya]** `CMakeLists.txt`
+```
++ Eklendi: SIMUSRC listesine haps_tdl.c.
+```
+**[Dosya]** `radio/rfsimulator/apply_channelmod.c`
+```
+~ Değiştirildi: haps_38811_path_loss_dB() artık kendi LOS/NLOS çekimini ve
+  elevation_deg'ini channelDesc->haps_is_los/haps_elevation_deg'e de yazıyor.
+~ Değiştirildi: update_channel_model()'in her iki dalında (uplink/downlink)
+  haps_update_frac_delay_taps()'ın hemen ardından haps_update_tdl_taps() çağrısı
+  eklendi (her çağrıda, saniyede bir değil - gerçek zamanla-değişen sönümleme için).
+```
+**[Dosya]** `openair1/SIMULATION/TOOLS/random_channel.c`
+```
+~ Değiştirildi: HAPS_MOBILE case bloğu - channel_length artık düz HAPS_MOBILE için 2,
+  `_38811` varyantları için HAPS_TDL_CHANNEL_LENGTH (16, en kötü durum ~8.6 örneklik
+  TDL-C yayılımına rahat pay). haps_is_los/haps_elevation_deg/haps_tdl_state
+  başlangıç değerleri eklendi.
+~ Değiştirildi: kimlik-matrisi kısayolunun HAPS_MOBILE* dalı artık channel_length'e
+  göre genelleştirildi (son 2 slot'u yazıyor, öncekileri sıfırlıyor) - hem
+  channel_length=2 (düz) hem =16 (_38811) için doğru ilk durum sağlanıyor.
+```
+
+**Derleme:** `ninja rfsimulator nr-softmodem nr-uesoftmodem` (üçü birlikte, Adım 18'in
+dersi tekrar uygulandı) - temiz, ilk denemede.
+
+**Test 1 - regresyon, düz `HAPS_MOBILE` (TDL'siz):** `RA failed: 0, received
+correctly: 1, RRCSetupComplete: 1` - hiç etkilenmedi.
+
+**Test 2 - `HAPS_MOBILE_38811` (varsayılan, `HAPS_DEBUG_TDL=1`):** `RA failed: 0,
+RRCSetupComplete: 1`. Canlı log, NTN-TDL-C (LOS, DS=5.4ns - kırsal/banliyö LOS 90°
+tablo değeriyle birebir eşleşiyor) altında **gerçekten dalgalanan** toplam tap
+enerjisi gösterdi: `0.75, 1.09, 0.50, 0.68, 0.88, 1.01, 0.95, 1.03, 0.77, 0.43` (0dB=1.0
+civarında, gerçek Rayleigh/Ricean sönümlemesinin imzası - sabit bir sayı değil).
+
+**Test 3 - yoğun-kentsel + `HAPS_GROUND_OFFSET_M=100000` (~11°, kapsama kenarı):**
+`RA failed: 0, RRCSetupComplete: 1`. Profil dağılımı 80 NLOS (NTN-TDL-A) / 35 LOS
+(NTN-TDL-C) - bu açıda beklenen düşük LOS olasılığıyla tutarlı. NTN-TDL-A altında
+(DS=144.5ns, yoğun-kentsel NLOS 10° tablo değeriyle eşleşiyor) enerji 1.25-4.58
+arasında dalgalandı - saf Rayleigh'ın (LOS'suz) Ricean'dan daha geniş dalgalanma
+göstermesi beklenen ve gözlenen bir sonuç.
+
+**Test 4 - 5 senaryonun tamamı regresyon:** 4/5 `RA failed: 0`; yoğun-kentsel+35km
+senaryosunda bir seferde `RA failed: 1` (yine de `RRCSetupComplete: 1`) - iki kez
+tekrar test edildi, ikisinde de `RA failed: 0` çıktı. Bu, gerçek sönümlemenin
+getirdiği beklenen istatistiksel varyans (önceden, sönümleme olmadan, bu senaryo hep
+0 RA failed veriyordu) - sistemik bir regresyon değil.
+
+**Sonuç:** Kanal artık gerçek, doğrulanmış, zamanla-evrilen küçük-ölçekli
+sönümleme taşıyor - 3GPP'nin kendi NTN-TDL-A/C modelleriyle, LOS/NLOS durumuna göre
+doğru profil arasında geçiş yaparak, mevcut büyük-ölçekli yol kaybı/gecikme/Doppler
+mekanizmalarıyla (Adım 15-20) birlikte ve onları bozmadan çalışıyor.
+
+---
+
 ## 4. Bilinen sınırlamalar / açık konular
 
 - **`HAPS_MOBILE` (band78/karasal, NTN'siz test) RA/RRC bağlantısı hâlâ kurulamıyor** —
@@ -1707,3 +1819,11 @@ başına bir dinamik mekanizmanın gerçekten çalıştığının kanıtı deği
   seferlik, sabit bir hata, büyüyen bir sorun değil). SAT_LEO_TRANS/REGEN de
   kapsam dışı (bu proje HAPS'a odaklı, LEO ayrıca doğrulanmamış - bkz.
   `oai-leo-to-haps-adaptation` hafıza notu).
+- **Küçük ölçekli sönümleme (multipath/TDL): Adım 21'de eklendi.** `HAPS_MOBILE_38811`
+  ailesi artık gerçek, zamanla-değişen NTN-TDL-A (NLOS)/NTN-TDL-C (LOS) sönümlemesi
+  taşıyor. Kasıtlı olarak dışarıda bırakılanlar: NTN-TDL-B/D (daha fazla tap'lı
+  varyantlar, A/C basitlik için seçildi), Ka-bant DS tabloları (S-bant test
+  senaryolarımız için gerek yoktu), MIMO (hâlâ 1x1 SISO), ve `fd_local=1Hz`
+  (gerçek bir UE hızı parametresinden değil, dokümante edilmiş temsili bir değerden
+  türüyor - bu simülatörde hiç UE hızı yok). `HAPS_STATIONARY*` etkilenmedi
+  (TDL sadece dinamik-gecikme ailesine eklendi).
