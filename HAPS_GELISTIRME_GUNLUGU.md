@@ -1826,6 +1826,51 @@ uygulanmaz - kasıtlı olarak kapsam dışı kalmaya devam ediyor).
 
 ---
 
+### Adım 23 — `docker-compose.yaml` düzeltmesi
+
+Kullanıcı isteği: Adım 2'den beri bozuk duran `docker-compose.yaml`'ı düzelt.
+
+**Önce bir dosya-adı hatası bulundu**: dosya diskte gerçekte `docker*compose.yaml`
+adıyla duruyordu (adının içinde **literal bir `*` karakteri** var - muhtemelen
+önceki bir oturumda tırnaksız bir glob'un kabuk tarafından yanlış yorumlanmasından
+kalma). `docker compose`/`docker-compose` araçları dosyayı bu isimle asla otomatik
+bulamaz. `git mv` ile `docker-compose.yaml`'a düzeltildi (git geçmişi korunarak).
+
+**İçerik incelendiğinde Adım 2'nin bulduğu 2 hatanın yanında 4 hata daha bulundu**
+(hepsi, bu projenin kanıtlanmış çalışan bare-metal komutlarıyla - Adım 3/5 -
+karşılaştırılarak tespit edildi):
+
+| # | Hata | Düzeltme |
+|---|---|---|
+| 1 | gNB: `--conf_file .../haps_channel.conf` - böyle bir CLI bayrağı yok (Adım 2) | Kaldırıldı - `gnb.haps.conf` zaten kendi `channelmod` bloğunu içeriyor |
+| 2 | UE: `--rfsimulator.options chan_mod` (alt çizgili, yanlış - Adım 2) | UE hiç `-O` config dosyası kullanmıyordu, tamamı CLI bayrağıydı |
+| 3 | UE: `--channelmod.model_name rfsimu_channel_ue0` - `channelmod` liste-tipi bir parametre, CLI bayrağıyla verilemez (Adım 2'nin `nrue.haps.conf`'u neden yarattığının ta kendisi) | UE komutuna `-O /opt/oai-nr-ue/etc/nrue.conf` eklendi, `nrue.haps.conf` volume olarak bağlandı (gNB'nin zaten yaptığı gibi) |
+| 4 | UE: `--rfsimulator.prop_delay 66` - büyüklük sırası yanlış (66 ms ≈ 19800 km, GEO mesafesi - gerçek değer 0.06671 ms olmalı, Adım 5) | Kaldırıldı - artık `nrue.haps.conf`'un kendi doğru değerinden (`prop_delay = 0.06671`) geliyor |
+| 5 | UE: `--rfsimulator.serveraddr` - config dosyalarımız `rfsimulator`'ı LİSTE olarak tanımlıyor (`rfsimulator = (...)`, `gnb.haps.conf`/`nrue.haps.conf`'ta doğrulandı), bu yüzden CLI üzerinden ezmek `--rfsimulator.[0].serveraddr` indeksini gerektiriyor (`radio/rfsimulator/simulator.cpp:521-534`'te doğrulandı) | `--rfsimulator.[0].serveraddr 192.168.70.140` olarak düzeltildi (`nrue.haps.conf`'un kendi `serveraddr="127.0.0.1"`'ini - bare-metal testler için doğru - konteyner ağı için ezmek amacıyla) |
+| 6 | Her iki serviste de `MALLOC_ARENA_MAX=1` eksikti | Her iki `environment:` bloğuna eklendi (bkz. `oai-ntn-leo-malloc-arena-fix` hafıza notu) |
+
+**Ayrıca kaldırılan**: `haps_channel.conf` volume mount'u (kullanılmayan dosya,
+Adım 2'nin bulgusu - dosyanın kendisi silinmedi, sadece artık referans alınmıyor).
+**Dokunulmayan**: `oai-amf` servisi - AMF/core entegrasyonu bu proje boyunca hiç
+test edilmedi (tüm testler core'suz, doğrudan gNB↔UE rfsim bağlantısı kurdu),
+doğruluğu bilinmiyor, kapsam dışı bırakıldı.
+
+**Doğrulama - dürüst sınır**: Bu makinede **Docker kurulu değil**
+(`which docker` → bulunamadı) ve `oai-amf`/`oai-gnb`/`oai-nr-ue` imajlarının
+hiçbiri yerel olarak mevcut değil - bu proje boyunca Docker hiç kullanılmadı.
+Yani bu düzeltme **çalıştırılarak uçtan uca doğrulanamadı** - sadece (a) YAML
+sözdizimi `python3 -c "import yaml; yaml.safe_load(...)"` ile geçerli olduğu
+doğrulandı, (b) her CLI bayrağı/config yolu, bu projenin gerçekten çalıştığı
+kanıtlanmış bare-metal komutlarıyla (Adım 3/5) birebir karşılaştırılarak
+düzeltildi. Docker imajları inşa edilip gerçek bir `docker compose up` denenirse
+bu iddia edilen düzeltmenin gerçek doğrulaması olur - henüz yapılmadı.
+
+**Sonuç**: `docker-compose.yaml` artık bare-metal testlerimizle tutarlı, geçerli
+YAML'lı bir dosya - ama Docker'ın kendisi bu makinede hiç kurulmadığı için
+gerçek bir `docker compose up` ile hâlâ doğrulanmamış durumda.
+
+---
+
 ## 4. Bilinen sınırlamalar / açık konular
 
 - **`HAPS_MOBILE` (band78/karasal, NTN'siz test) RA/RRC bağlantısı hâlâ kurulamıyor** —
@@ -1841,8 +1886,12 @@ uygulanmaz - kasıtlı olarak kapsam dışı kalmaya devam ediyor).
   (`ci-scripts/conf_files/gnb.sa.band254.u0.25prb.rfsim.ntn-haps.conf` +
   `nrue.uicc.ntn-haps.conf`) hem hareketli (`haps_test/gnb.haps_mobile_ntn.conf` +
   `nrue.haps_mobile_ntn.conf`) senaryolarda ilk-denemede `RRC_CONNECTED` elde ediliyor.
-- **`docker-compose.yaml` düzeltilmedi** — Adım 2'de tespit edilen `--conf_file` ve
-  `chan_mod`/`chanmod` hataları hâlâ duruyor, Docker akışına geçilirse ele alınmalı.
+- **`docker-compose.yaml`: Adım 23'te düzeltildi (ama Docker kurulu olmadığı için
+  çalıştırılarak doğrulanamadı)** — dosya adındaki literal `*` karakteri, Adım 2'nin
+  bulduğu 2 hata, ve 4 hata daha (bkz. Adım 23 tablosu) bare-metal kanıtlanmış
+  komutlarla karşılaştırılarak düzeltildi. Gerçek bir `docker compose up` denemesi
+  hâlâ yapılmadı - bu makinede Docker kurulu değil, referans verilen imajlar
+  (`oai-amf`/`oai-gnb`/`oai-nr-ue`) yerel olarak mevcut değil.
 - **Yol kaybı: `HAPS_STATIONARY`/`HAPS_MOBILE` (orijinal) hâlâ keyfi bir değerde
   (`ploss_dB=20`) — bilinçli olarak değiştirilmedi.** Adım 14'te literatür taraması
   (3GPP TR 38.811 + ITU-R F.1569/F.1570), Adım 15'te **büyük kapsam** seçildi ve

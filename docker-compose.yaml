@@ -1,0 +1,70 @@
+version: '3.8'
+
+networks:
+  public_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.70.128/26
+
+services:
+  # --- 5G CORE (AMF) ---
+  # NOT: Bu servis dokunulmadı - AMF/core entegrasyonu bu proje boyunca hiç test
+  # edilmedi (tüm testler gNB<->UE rfsim bağlantısını doğrudan, bir core olmadan
+  # kurdu). Doğruluğu/eksiksizliği bilinmiyor - bkz. HAPS_GELISTIRME_GUNLUGU.md
+  # Adım 23.
+  oai-amf:
+    image: oai-amf:v1.5.0
+    container_name: oai-amf
+    environment:
+      - MCC=208
+      - MNC=99
+    networks:
+      public_net:
+        ipv4_address: 192.168.70.132
+
+  # --- HAPS gNodeB SERVİSİ ---
+  oai-gnb:
+    image: oai-gnb:latest
+    container_name: haps-gnb
+    cap_add:
+      - NET_ADMIN
+      - SYS_NICE
+    environment:
+      # MALLOC_ARENA_MAX=1 olmadan nr-softmodem bu makinede çöküyor/takılıyor -
+      # bkz. oai-ntn-leo-malloc-arena-fix hafıza notu, Adım 1'in HAPS Faz 1 notu.
+      - MALLOC_ARENA_MAX=1
+    volumes:
+      # Yan yana duran dosyayı doğrudan konteynere bağlar - gnb.haps.conf zaten
+      # kendi channelmod bloğunu (chanmod aktif, HAPS_STATIONARY) içeriyor, ayrı
+      # bir dosyaya/bayrağa gerek yok (bkz. aşağıdaki gerekçe notu).
+      - ./gnb.haps.conf:/opt/oai-gnb/etc/gnb.conf
+    command: >
+      /opt/oai-gnb/bin/nr-softmodem
+      -O /opt/oai-gnb/etc/gnb.conf
+      --rfsim
+    networks:
+      public_net:
+        ipv4_address: 192.168.70.140
+
+  # --- HAPS NR UE SERVİSİ ---
+  oai-nr-ue:
+    image: oai-nr-ue:latest
+    container_name: haps-ue
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - MALLOC_ARENA_MAX=1
+    volumes:
+      - ./nrue.haps.conf:/opt/oai-nr-ue/etc/nrue.conf
+    command: >
+      /opt/oai-nr-ue/bin/nr-uesoftmodem
+      -O /opt/oai-nr-ue/etc/nrue.conf
+      -r 106 --numerology 1 -C 3619200000
+      --rfsim
+      --rfsimulator.[0].serveraddr 192.168.70.140
+    depends_on:
+      - oai-gnb
+    networks:
+      public_net:
+        ipv4_address: 192.168.70.150
