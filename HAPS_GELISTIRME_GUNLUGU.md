@@ -1762,6 +1762,70 @@ mekanizmalarıyla (Adım 15-20) birlikte ve onları bozmadan çalışıyor.
 
 ---
 
+### Adım 22 — Sintilasyon (PL_s): araştırma sonrası dar kapsamlı Ka-bant yer tutucusu
+
+Kullanıcı isteği: "eksikleri giderelim, sintilasyon ile başlayalım." Koda geçmeden
+önce TR 38.811'in S6.6.6 (Sintilasyon) bölümü tekrar okundu - üç bağımsız bulgu
+kodlamadan önce kullanıcıya raporlandı:
+
+1. **Troposferik sintilasyon**: spec'in kendi metni "shall **only** be considered
+   for frequencies **above 6 GHz**" diyor - bizim tüm S-bant test senaryolarımız
+   (~1.6-2.5 GHz) bu eşiğin altında, yani bu terim bizim frekansımızda **spec'in
+   kendi kuralına göre sıfır**, sadece "küçük" değil.
+2. **İyonosferik sintilasyon**: 6GHz altı için "latitudes between ±20° and ±60°,
+   PLS ≈ 0" - simülatörde hiç enlem/konum parametresi yok, gerçekçi (orta enlem)
+   varsayım zaten ~0 veriyor.
+3. **Tablo 6.10.1-1** (NTN dağıtım senaryoları): HAPS (Deployment-D5) satırının
+   Sintilasyon sütunu doğrudan **"Negligible"** yazıyor.
+
+Ayrıca modelin kendisi de dar kapsamlı: troposferik model spec'te sadece **tek bir
+şehir (Toulouse), tek bir frekans (20 GHz)** için dijitalleştirilmiş bir CDF
+grafiğinden tablo veriyor (Tablo 6.6.6.2.1-1) - genel bir frekans-ölçekleme
+formülü yok (bu, ayrı ve çok daha büyük bir iş olan ITU-R P.618/P.1853'ün konusu).
+
+**Kullanıcıya 3 seçenek soruldu**: (a) atla + gerekçeyi logla, (b) sadece Ka-bant
+için (>=6GHz) bu tek referans tablodan dar bir yer tutucu ekle, (c) tam model
+(S4-indeksi/güneş-aktivitesi + troposferik CDF). **(b) seçildi.**
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_scint.c` — **yeni oluşturuldu**
+```
++ Eklendi: haps_scint_attenuation_dB(freq_GHz, elevation_deg) - freq_GHz < 6.0 ise
+  0.0 döner (spec'in kendi kuralı); üstündeyse Tablo 6.6.6.2.1-1'in
+  (Toulouse/20GHz, 9 yükseklik açısı) değerini olduğu gibi döndürür - frekansa göre
+  ölçeklenmiyor, tek bir sabit referans tablo. İyonosferik terim hiç eklenmedi
+  (yukarıdaki 2. bulgu + konum parametresi eksikliği).
+```
+**[Dosya]** `openair1/SIMULATION/TOOLS/sim.h`, `CMakeLists.txt`
+```
++ Eklendi: fonksiyon deklarasyonu, SIMUSRC listesine haps_scint.c.
+```
+**[Dosya]** `radio/rfsimulator/apply_channelmod.c`
+```
+~ Değiştirildi: haps_38811_path_loss_dB() artık scint_atten_dB'yi de PLb_dB'ye
+  ekliyor (TR 38.811'in PL=PLb+PLg+PLs+PLe ayrıştırmasının PLs kısmı tamamlandı,
+  sadece PLe/bina-girişi kapsam dışı kaldı). Debug log satırına scint alanı eklendi.
+```
+
+**Derleme:** `ninja rfsimulator nr-softmodem nr-uesoftmodem` - temiz.
+
+**Test 1 - regresyon (S-bant, varsayılan senaryo):** `RA failed: 0,
+RRCSetupComplete: 1`, log `scint=0.000dB` - beklenen, S-bant için hep sıfır.
+
+**Test 2 - fonksiyonun kendisi, standalone C testiyle** (canlı bir Ka-bant NTN
+senaryosu şu an mevcut olmadığı için - band 510-512 hiç test edilmedi): eşik ve
+yükseklik-binning mantığı doğrulandı - `f<6GHz` her zaman 0; `f=6.0/20.0/30.0GHz`
+tümü aynı tabloyu doğru yükseklik-açısı satırıyla (5°→10° satırına, 95°→90°
+satırına kenetlenerek) veriyor.
+
+**Sonuç:** TR 38.811'in `PL=PLb+PLg+PLs+PLe` ayrıştırmasının `PLs` kısmı artık
+kodda - ama kasıtlı olarak dar kapsamlı: S-bant (yani şu an test ettiğimiz her
+şey) için her zaman 0, sadece ileride bir Ka-bant NTN senaryosu test edilirse
+devreye girecek, tek-şehir/tek-frekans referans tablosuna dayalı bir yer tutucu.
+Kalan tek PL bileşeni: PL_e (bina girişi kaybı, açık-alan senaryomuzda
+uygulanmaz - kasıtlı olarak kapsam dışı kalmaya devam ediyor).
+
+---
+
 ## 4. Bilinen sınırlamalar / açık konular
 
 - **`HAPS_MOBILE` (band78/karasal, NTN'siz test) RA/RRC bağlantısı hâlâ kurulamıyor** —
@@ -1795,9 +1859,12 @@ mekanizmalarıyla (Adım 15-20) birlikte ve onları bozmadan çalışıyor.
   (~0.04dB, bağlantıyı bozmuyor - Adım 14'ün "ihmal edilebilir" tahminini doğruluyor);
   ek olarak (38.811'in kendi kapsamı dışında) tam bir ITU-R P.838-3 yağmur modeli de
   eklendi, varsayılan yağmur oranı 0 (`HAPS_RAIN_RATE_MM_H` env'iyle test edilebilir).
-  Hâlâ eklenmeyen: sintilasyon (PL_s, ITU-R P.618) ve O2I bina girişi kaybı (PL_e,
-  §6.6.3) - bizim ~90° yükseklik açılı, açık-alan senaryomuzda ihmal edilebilir
-  oldukları için hâlâ kasıtlı olarak dışarıda.
+  **Sintilasyon (PL_s): Adım 22'de ele alındı** - troposferik terim spec'in kendi
+  kuralına göre ("only considered above 6GHz") S-bantta hep 0, sadece dar bir
+  Ka-bant yer tutucusu (tek şehir/tek frekans referans tablosu) olarak eklendi;
+  iyonosferik terim (konum/enlem parametresi olmadığı ve orta enlemde zaten ~0
+  olduğu için) hiç eklenmedi. Hâlâ eklenmeyen: O2I bina girişi kaybı (PL_e, §6.6.3)
+  - açık-alan senaryomuzda uygulanmadığı için kasıtlı olarak dışarıda.
 - **Gürültü tabanı: `HAPS_STATIONARY`/`HAPS_MOBILE` (orijinal) hâlâ keyfi
   (`noise_power_dB=-110`) — bilinçli olarak değiştirilmedi.** `_38811` varyantlarında
   Adım 16'da kTB+NF termal gürültü formülünden (gerçek config bant genişliğine göre,
