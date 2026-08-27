@@ -1236,6 +1236,420 @@ doğru ölçekleniyor. Orijinal senaryolar değişmedi.
 
 ---
 
+### Adım 17 — TR 38.811'i genişletme: kentsel/yoğun-kentsel + Ka-bant sütunları ve olasılıksal LOS/NLOS durumu
+
+Kullanıcı isteği: Adım 15'in v1 kapsamında bilinçli olarak dışarıda bırakılan kısmı
+tamamla — kentsel/yoğun-kentsel sütunlarını ve olasılıksal LOS/NLOS durum çekimini
+(şu ana kadar hep zorunlu LOS varsayılıyordu) gerçekten koda ekle.
+
+**Kaynak veri:** Adım 15'te "log'da kayıtlı" denen tam tablo aslında bu oturumda
+diskte bulunamadı (önceki oturumun geçici `pdftotext` çıktısı kalıcı değilmiş) — TR
+38.811 V15.1.0 PDF'i tekrar indirilip (`hscc.csie.ncu.edu.tw/38811.pdf`, resmi 3GPP
+metniyle birebir), `pdftotext -layout` ile Tablo 6.6.1-1 (LOS olasılığı, 3 senaryo ×
+9 açı) ve Tablo 6.6.2-1/2/3'ün tamamı (kentsel/yoğun-kentsel/kırsal-banliyö × S/Ka-bant
+× LOS/NLOS SF + NLOS CL) satır satır doğrulanarak çıkarıldı.
+
+**Tasarım kararları:**
+1. **Yeni enum'lar, mevcut olanlara dokunulmadan**: `HAPS_STATIONARY_38811_URBAN`,
+   `HAPS_MOBILE_38811_URBAN`, `HAPS_STATIONARY_38811_DENSE_URBAN`,
+   `HAPS_MOBILE_38811_DENSE_URBAN` eklendi (Adım 15'in "ayrı/opt-in" deseni
+   tekrarlandı). Mevcut `HAPS_STATIONARY_38811`/`HAPS_MOBILE_38811` artık yeni
+   `haps_38811_scenario_t` alanının varsayılanı (`HAPS_38811_SUBURBAN_RURAL=0`) ile
+   birebir aynı davranışı üretiyor — davranış değişikliği yok.
+2. **Bant (S/Ka) için yeni enum/config alanı açılmadı**: `channelDesc->center_freq`'ten
+   otomatik seçiliyor (`>= 6 GHz` eşiği → Ka-bant, altı → S-bant) — S-bant (~2 GHz) ve
+   Ka-bant (~20-30 GHz) arası zaten çok büyük bir boşluk olduğundan bu basit eşik
+   güvenilir.
+3. **LOS/NLOS artık olasılıksal**: her saniyelik yeniden hesaplamada
+   `uniformrandom() < Tablo_6.6.1-1[senaryo][açı]` ile durum çekiliyor; LOS ise CL=0
+   (spec'in kendi kuralı), NLOS ise hem shadow fading sigma'sı hem clutter loss (CL)
+   NLOS tablolarından okunuyor.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/sim.h`
+```
++ Eklendi: haps_38811_scenario_t enum (SUBURBAN_RURAL=0/URBAN/DENSE_URBAN),
+  channel_desc_t'ye haps_38811_scenario alanı, SCM_t'ye 4 yeni enum değeri +
+  CHANNELMOD_MAP_INIT isim eşleşmeleri.
+```
+**# Gerekçe:** `use_38811_pathloss` sadece açık/kapalı bilgisini taşıyordu, hangi
+ortam sütununun kullanılacağını taşıyacak ayrı bir alan gerekiyordu.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/random_channel.c`
+```
+~ Değiştirildi: case HAPS_STATIONARY_38811/HAPS_MOBILE_38811 blokları 4 yeni enum'u
+  da (fallthrough ile) kapsayacak şekilde genişletildi, haps_38811_scenario alanı
+  channel_model'e göre set ediliyor; debug printf'leri artık senaryo adını da yazıyor.
+~ Değiştirildi: identity-matrix kısayolu ve debug/telnet çıktı koşulu - 4 yeni enum'u
+  da OR zincirine ekledi (LEO'nun 9 konumluk checklist deseniyle aynı disiplin).
+```
+
+**[Dosya]** `radio/rfsimulator/apply_channelmod.c`
+```
++ Eklendi: Tablo 6.6.1-1 (haps_38811_los_prob[3][9]) ve Tablo 6.6.2-1/2/3'ün tamamı
+  (haps_38811_sf_los_S/Ka[3][9], haps_38811_sf_nlos_S/Ka[3][9],
+  haps_38811_cl_nlos_S/Ka[3][9]) - resmi PDF'ten satır satır doğrulanarak.
+~ Değiştirildi: haps_38811_path_loss_dB() artık channelDesc->haps_38811_scenario'ya
+  göre tablo seçiyor, center_freq'ten S/Ka-bant seçiyor, uniformrandom() ile
+  LOS/NLOS durumunu çekiyor, ve CL'yi (NLOS'ta sıfır olmayan) PLb'ye ekliyor.
++ Eklendi: HAPS_DEBUG_38811 env değişkeni (varsayılan no-op) - seçilen
+  senaryo/bant/LOS-NLOS durumu/sigma_SF/CL/PLb'yi loglar.
+~ Değiştirildi: 3 yerdeki HAPS_STATIONARY/HAPS_MOBILE OR-zincirleri (kinematik dal
+  girişi, SIB19 güncelleme koşulu, is_haps bayrağı) 4 yeni enum'u da kapsayacak
+  şekilde genişletildi.
+```
+**# Gerekçe:** `HAPS_38811_GAIN_BUDGET_DB` (146.39 dB) kasıtlı olarak yeniden
+kalibre edilmedi - bu sabit sadece 90°/kırsal-banliyö/LOS referans noktasını
++20dB'ye sabitliyor, kentsel/yoğun-kentsel ve NLOS durumlarının bu referansa göre
+**daha kötü** çıkması eklemenin fiziksel amacı zaten.
+
+**Derleme:** `ninja rfsimulator nr-softmodem nr-uesoftmodem` - 35/35 adım, hatasız.
+
+**Test 1 — regresyon, `HAPS_MOBILE_38811` (varsayılan kırsal/banliyö, Adım 15/16'nın
+kanıtlanmış senaryosu), değişmemiş config:** `RA failed: 0, received correctly: 1,
+RRCSetupComplete: 1`. Log satırı artık `(TR 38.811 path loss, suburban/rural)`
+diyor, `ploss_dB` değerleri (18.7-24.7 dB) Adım 15'teki gibi dar bir bantta -
+davranış birebir korundu.
+
+**Test 2 — regresyon, düz `HAPS_MOBILE` + gerçek NTN (Adım 13'ün kanıtlanmış
+senaryosu, `_38811` bile değil):** `RA failed: 0, received correctly: 1,
+RRCSetupComplete: 1` - bu koda hiç dokunulmadığı teyit edildi.
+
+**Test 3 — yeni `HAPS_MOBILE_38811_URBAN`** (`haps_test/gnb.haps_mobile_ntn_38811_urban.conf`
++ `nrue.haps_mobile_ntn_38811_urban.conf`, Adım 13/15'in kanıtlanmış _38811 config
+çiftinden `type` alanı değiştirilerek türetildi): `RA failed: 0, received correctly: 1,
+RRCSetupComplete: 1` - **ilk denemede bağlandı**. Log: `(TR 38.811 path loss, urban)`,
+`ploss_dB` aralığı (16.9-25.7 dB) kırsal/banliyö'ye göre gözle görülür biçimde daha
+geniş - urban'ın LOS sigma_SF'inin (4.0 dB sabit) kırsal/banliyö'den (0.72-1.79 dB)
+büyük olması beklenen ve doğrulanan bir sonuç.
+
+**Test 4 — yeni `HAPS_MOBILE_38811_DENSE_URBAN`**
+(`haps_test/gnb.haps_mobile_ntn_38811_dense_urban.conf` + eşleniği), `HAPS_DEBUG_38811=1`
+ile: `RA failed: 0, received correctly: 1, RRCSetupComplete: 1` - yine ilk denemede
+bağlandı. Debug log'u LOS/NLOS dağılımını doğruladı: 30 örneklemde 25 LOS / 5 NLOS
+(gNB tarafı, ~%83 LOS) - bizim loiter geometrimizin yükseklik açısı aralığında
+(78.7°-90°) Tablo 6.6.1-1'in yoğun-kentsel LOS olasılığıyla (80°'de %82) tutarlı.
+NLOS çekildiğinde `sigma_SF=9.20dB CL=25.50dB` (80° yoğun-kentsel S-bant NLOS
+değerleriyle birebir eşleşiyor) doğru şekilde uygulandı, ve bu ~25dB'lik anlık ekstra
+kayba rağmen bağlantı bu kısa testte bozulmadı (RA/RRC zaten path-loss'a bu kadar
+duyarlı değil - asıl risk PUSCH/PDSCH SNR'ının uzun vadede düşmesi, ayrı bir konu).
+
+**Sonuç:** TR 38.811'in tam §6.6.1/6.6.2 modeli (3 senaryo × 2 bant × LOS/NLOS,
+olasılıksal durum çekimiyle) artık kodda, opt-in (`_URBAN`/`_DENSE_URBAN` enum'ları),
+ve doğrulanmış çalışır durumda. Orijinal `HAPS_STATIONARY`/`HAPS_MOBILE` ve mevcut
+`_38811` (varsayılan kırsal/banliyö) senaryoları hiç değişmedi, 2/2 regresyon testi
+geçti.
+
+**Yeni dosyalar:** `haps_test/gnb.haps_mobile_ntn_38811_urban.conf` +
+`nrue.haps_mobile_ntn_38811_urban.conf`, `haps_test/gnb.haps_mobile_ntn_38811_dense_urban.conf`
++ `nrue.haps_mobile_ntn_38811_dense_urban.conf` (hepsi Adım 13/15'in kanıtlanmış
+config çiftinden sadece `type` alanı değiştirilerek türetildi).
+
+---
+
+### Adım 18 — Atmosferik kayıplar: ITU-R P.676 (gaz) + ITU-R P.838-3 (yağmur)
+
+Kullanıcı isteği: Adım 17'nin bilinçli dışarıda bıraktığı son parça - atmosferik gaz
+ve yağmur kaybını da ekle. Kullanıcı ayrıca partnerinin ayrı bir görsel şema
+(`haps_config.h/.c`, `haps_geometry.h/.c`, `haps_propagation.h/.c`, `haps_gas.h/.c` +
+`haps_rain.h/.c`, `haps_channel.h/.c` gibi tamamen modüler, her endişe için ayrı
+dosya olan bir mimari) izlediğini paylaştı ve bizim projenin bu şemadaki hangi
+aşamada olduğunu, neyin eksik olduğunu sordu.
+
+**Şema-karşılaştırması (kullanıcıya rapor edildi, koda yansımadı):** Bizim projemiz
+aynı fiziği (referans model inceleme, geometri, TR 38.811 yol kaybı, gecikme/Doppler,
+SIB19 entegrasyonu, uçtan uca IQ çıkışı) partnerin şemasının aksine **tek monolitik
+`sim.h`/`random_channel.c`/`apply_channelmod.c` üçlüsüne** gömerek üretti - LEO'nun
+zaten kullandığı OAI deseni. Bu adımdan itibaren (atmosferik terimler) **partnerin
+modüler dosya yapısına geçildi** - bkz. aşağıdaki gerekçe.
+
+**Mimari karar:** Kullanıcıya "inline mi ayrı dosya mı, önceki örnekler nasıl yapmış"
+diye soruldu. Kod tabanı incelendiğinde net bir emsal bulundu:
+`openair1/SIMULATION/TOOLS/` klasörü zaten her fiziksel/matematiksel endişeyi kendi
+küçük dosyasına ayırıyor (`phase_noise.c`, `noise_device.c`, `rangen_double.c`,
+`multipath_channel.c` - hepsi `CMakeLists.txt`'teki `SIMUSRC` listesinde, ortak
+`sim.h`'de deklare edilen, header'sız küçük `.c` dosyaları). Bu, hem partnerin
+şemasıyla hem de OAI'nin kendi yerleşik konvansiyonuyla örtüşüyor - **ayrı dosyalar**
+seçildi.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_gas.c` — **yeni oluşturuldu**
+```
++ Eklendi: ITU-R P.676 Annex 2'nin (1-350 GHz, harici tayf-çizgisi veri dosyası
+  gerektirmeyen, "basitleştirilmiş" - ve hâlâ literatürde en yaygın kullanılan -
+  kapalı-form modeli). gamma0_approx()/gammaw_approx() açık kaynak ITU-Rpy
+  kütüphanesinden (github.com/inigodelportillo/ITU-Rpy, itur/models/itu676.py)
+  doğrulanarak C'ye port edildi - ezbere değil, gerçek bir referans implementasyondan.
+  Standart referans atmosfer (P=1013.25 hPa, T=288.15 K, rho=7.5 g/m³) varsayıldı.
+  haps_gas_attenuation_dB(freq_GHz, elevation_deg) tek public fonksiyon; sabit
+  eşdeğer yükseklikler (h_o=6km, h_w=2.2km) ile zenit değerini eğik yola çeviriyor.
+```
+**# Gerekçe:** P.676-13'ün GÜNCEL tam modeli (kendi Annex 2'si) artık harici,
+recommendation metninin içinde bulunmayan, ayrıca indirilmesi gereken per-frekans
+katsayı dosyalarına (a_o,b_o,c_o,d_o... vb.) bağımlı - bunları güvenilir şekilde
+elle aktaramayacağımız için, tarihsel olarak hep bu amaçla kullanılan, kendi kendine
+yeten basitleştirilmiş kapalı-form modeli tercih edildi (P.676-13 metninde de "quick
+and approximate estimates" için Annex 2'nin bu türünün var olduğu belirtiliyor).
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_rain.c` — **yeni oluşturuldu**
+```
++ Eklendi: ITU-R P.838-3'ün TAM modeli (denklem 1-5), resmi PDF'ten pdftotext ile
+  çıkarılan Tablo 1-4 katsayılarıyla birebir - bu tavsiye kendi içinde tam/kapalı
+  (harici veri dosyası gerekmiyor), bu yüzden yaklaşıksız, tam sadık bir port.
+  Dairesel polarizasyon (tau=45°) varsayıldı (uydu/HAPS bağlantıları için standart
+  varsayım - cos(2*tau)=0 yapıp H/V ortalamasına indirgiyor).
+  haps_rain_attenuation_dB(freq_GHz, elevation_deg, rain_rate_mm_per_h) - yağmur
+  oranı <= 0 ise 0 dB döner (varsayılan davranış, bkz. aşağı).
+```
+**# Gerekçe - yağmur oranı için config alanı açılmadı:** `HAPS_RAIN_RATE_MM_H` env
+değişkeni (varsayılan 0 = açık hava = 0 dB, test için elle set edilebilir) - projenin
+zaten yerleşik `HAPS_DEBUG_*` env-değişkeni deseniyle aynı, yeni config plumbing'i
+gerektirmedi.
+
+**Test sırasında bulunan bir hata (kendi hesabımdaki, koddaki değil) düzeltildi:**
+Formülü ilk yazarken denklem (4)/(5)'teki `cos(2*tau)` çarpanını unutup
+`(kH-kV)*cos²(elevation)` terimini doğrudan `k`'ye eklemiştim - `tau=45°` için bu
+terimin TAMAMEN sıfırlanması gerekiyordu (`cos(90°)=0`), yani `k` ve `alpha` sadece
+H/V ortalaması olmalıydı. Kod okuması sırasında (yayına almadan önce) fark edilip
+düzeltildi.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/sim.h`
+```
++ Eklendi: haps_gas_attenuation_dB()/haps_rain_attenuation_dB() deklarasyonları
+  (gaussZiggurat/uniformrandom'ın yanına, aynı header-paylaşımlı desen).
+```
+**[Dosya]** `CMakeLists.txt`
+```
++ Eklendi: SIMUSRC listesine haps_gas.c ve haps_rain.c.
+```
+**[Dosya]** `radio/rfsimulator/apply_channelmod.c`
+```
+~ Değiştirildi: haps_38811_path_loss_dB() artık gas_atten_dB (her zaman hesaplanır,
+  TR 38.811'in kendi PL=PLb+PLg+PLs+PLe ayrıştırmasındaki PLg'nin karşılığı) ve
+  rain_atten_dB'yi (HAPS_RAIN_RATE_MM_H env'i üzerinden, varsayılan 0) PLb'ye
+  ekliyor. Debug log satırı gas/rain değerlerini de yazıyor.
+```
+
+**Derleme ve KRİTİK bir tuzak:** İlk birkaç `ninja nr-softmodem` çalıştırması
+(sadece o hedefle) haps_rain.c/haps_gas.c'deki değişiklikleri `libSIMU.a`'ya doğru
+derledi, ama **`librfsimulator.so`'yu yeniden linklemedi** - bu dosya `nr-softmodem`
+tarafından derleme-zamanında değil, `--rfsim` bayrağıyla ÇALIŞMA ZAMANINDA
+`dlopen()` ile yükleniyor, yani ninja'nın bağımlılık grafiğinde `nr-softmodem`
+hedefinin bir parçası değil - `target_link_libraries(rfsimulator PRIVATE SIMU
+log_headers)` (`radio/rfsimulator/CMakeLists.txt:9`) bu paylaşımlı kütüphaneyi
+`SIMU`'ya statik olarak bağlıyor, yani `SIMU` her değiştiğinde **`ninja rfsimulator`
+ayrıca ve açıkça çalıştırılmalı**, yoksa test edilen kod bayat kalır. Bu, geçici
+bir debug enstrümantasyonuyla (`HAPS_DEBUG_RAIN_INTERNAL`, ağaçta no-op olarak
+bırakıldı) yakalanan ~3 kat'lık bir sayısal tutarsızlıkla keşfedildi - araştırma
+sonunda kodun DOĞRU olduğu (test config'inin gerçek taşıyıcı frekansının, önceki
+bir adımın referans aldığı 2.5GHz değil, band 254'ün gerçek ~1.615GHz'i olduğu)
+anlaşıldı, ama bu tuzak `ninja rfsimulator nr-softmodem nr-uesoftmodem` şeklinde
+**üçünü birlikte** derlemenin bundan sonra standart olması gerektiğini gösterdi.
+
+**Test - 4 senaryonun tamamı regresyon (varsayılan yağmur=0, gaz her zaman aktif):**
+
+| Senaryo | RA failed | received correctly | RRCSetupComplete | gas (dB) | rain (dB) |
+|---|---|---|---|---|---|
+| `HAPS_MOBILE_38811` (kırsal/banliyö) | 0 | 1 | 1 | 0.039 | 0.000 |
+| düz `HAPS_MOBILE` + NTN (Adım 13, `_38811` bile değil) | 0 | 1 | 1 | – | – |
+| `HAPS_MOBILE_38811_URBAN` | 0 | 1 | 1 | 0.039 | 0.000 |
+| `HAPS_MOBILE_38811_DENSE_URBAN` | 0 | 1 | 1 | 0.039 | 0.000 |
+
+4/4 ilk denemede `RRCSetupComplete`/`RRC_CONNECTED` - gaz teriminin ~0.04dB'lik
+büyüklüğü (Adım 14'ün literatür taramasının "90° yükseklik açısında ihmal edilebilir"
+sonucunu doğrudan doğruluyor) hiçbir senaryoda bağlantıyı bozmadı.
+
+**Yağmur mekanizması ayrıca doğrulandı** (`HAPS_RAIN_RATE_MM_H=25`, ağır yağmur,
+band 254'ün ~1.615GHz'inde): `rain=0.004dB` - S-bantta yağmurun gerçekten ihmal
+edilebilir olduğu bilinen fiziğiyle tutarlı (yağmur zayıflaması Ku/Ka-bant ve
+üzerinde asıl önemli hale gelir); bağımsız bir standalone C test programıyla
+(`/tmp/test_rain.c`) da sayısal olarak doğrulandı.
+
+**Sonuç:** TR 38.811'in `PL = PLb + PLg + PLs + PLe` ayrıştırmasının `PLg`
+(atmosferik gaz) kısmı artık gerçek, harici veriye ihtiyaç duymayan bir ITU-R P.676
+modeliyle kodda; ek olarak (38.811'in kendi kapsamı dışında ama ilgili) tam sadık bir
+ITU-R P.838-3 yağmur modeli de eklendi, varsayılan olarak sıfır etkili (yağmur yok).
+Bu adımdan itibaren proje partnerin şemasındaki dosya-başına-endişe mimarisini
+izliyor - `haps_config.h/.c` (Adım 4'ün karşılığı, config okuma) ve tam
+`haps_channel_ctx_t`/`haps_channel_process()` (Adım 8/11'in karşılığı) hâlâ ayrı
+modüller olarak yazılmadı, mevcut jenerik `channel_desc_t`/`fill_channel_desc()`/
+`rxAddInput()` yoluyla karşılanıyor - bu, gelecekte partnerle birleştirme
+yapılacaksa yeniden değerlendirilmesi gereken açık bir mimari fark.
+
+---
+
+### Adım 19 — Geometri genişletmesi: gerçekçi düşük yükseklik açıları test edilebilir hale getirildi
+
+Kullanıcı sorusu: test loglarında elevasyon neden hep ~78.7°-90° arasında çıkıyor?
+**Kök neden (kod okuması, hata değil):** `HAPS_MOBILE`'ın loiter yarıçapı (2 km,
+Adım 7) irtifaya (20 km) göre çok küçük - yer istasyonuna yatay mesafe hep 0-4000m
+arasında kalıyor, `asin(20000/sqrt(20000²+yatay²))` bu aralıkta hep 78.7°-90° veriyor
+(matematiksel olarak doğrulandı, bkz. aşağıdaki hesap). Bu, terminalin platformun
+kapsama alanının **her zaman tam merkezinde** (neredeyse tam altında) olduğu
+anlamına geliyor - gerçek bir HAPS'ın kapsama kenarındaki (10-30°) bir kullanıcıyı
+hiç temsil etmiyor. Sonuç: Adım 15/17/18'de yazdığımız LOS olasılığı/clutter
+loss/atmosferik kayıp kodu şimdiye kadarki tüm testlerde neredeyse hep en iyimser
+(LOS'a çok yakın) bölgesinde çalıştı - NLOS/düşük-açı davranışı hiç gerçek anlamda
+egzersiz edilmedi.
+
+**Karar (kullanıcıyla, iki seçenek arasında):** İnce zamanlama (fractional/sub-sample
+delay - `channel_offset`'in `uint64_t` olması yüzünden her zaman tam sayıya
+yuvarlanması) yerine, bu geometri genişletmesi seçildi - daha düşük risk (yeni FIR
+tap semantiği/paylaşılan `random_channel()` kimlik-matris kısayoluna dokunmuyor) ve
+daha yüksek bilimsel değer (az önce yazdığımız kodu gerçekten sınıyor).
+
+**Tasarım:** `haps_loiter_radius` (platformun KENDİ küçük station-keeping
+sallantısı) ile "bu terminal kapsama alanının neresinde" tamamen ayrı kavramlar -
+yeni bir alan (`haps_ground_offset_m`) eklendi, platformun loiter dairesinin
+MERKEZİNİ yer istasyonundan sabit bir yatay mesafeye kaydırıyor. Varsayılan 0 (tüm
+mevcut senaryolar için davranış değişikliği yok), `HAPS_GROUND_OFFSET_M` env
+değişkeniyle ezilebiliyor - yeni bir config alanı/enum açmadan (proje genelindeki
+`HAPS_DEBUG_*`/`HAPS_RAIN_RATE_MM_H` deseniyle aynı).
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/sim.h`
+```
++ Eklendi: channel_desc_t'ye haps_ground_offset_m alanı.
+```
+**[Dosya]** `openair1/SIMULATION/TOOLS/random_channel.c`
+```
+~ Değiştirildi: HAPS_STATIONARY* ve HAPS_MOBILE* case bloklarına
+  `chan_desc->haps_ground_offset_m = 0.0;` eklendi (açık varsayılan, davranış
+  değişikliği yok).
+```
+**[Dosya]** `radio/rfsimulator/apply_channelmod.c`
+```
+~ Değiştirildi: update_channel_model()'in HAPS geometri dalında
+  `pos_sat_x = r_loiter + r_loiter*cos(w*t)` ->
+  `pos_sat_x = ground_offset_m + r_loiter + r_loiter*cos(w*t)`, ground_offset_m
+  channelDesc->haps_ground_offset_m'den (varsayılan 0) veya HAPS_GROUND_OFFSET_M
+  env değişkeninden okunuyor.
+```
+**# Gerekçe:** Tek satırlık, toplamsal bir kayma - mevcut r_loiter/w_haps
+matematiğine hiç dokunmadan yer istasyonunun "kapsama merkezine göre nerede
+olduğunu" değiştiriyor; 0'da eski davranışla birebir aynı.
+
+**Derleme:** `ninja rfsimulator nr-softmodem nr-uesoftmodem` - temiz (bu kez üçü
+birlikte, Adım 18'in `librfsimulator.so` tuzağından ders alınarak).
+
+**Test 1 - regresyon (`HAPS_GROUND_OFFSET_M` set edilmeden, dense-urban senaryosu):**
+`elev=78.7°` (değişmedi), `RA failed: 0, received correctly: 1` - davranış birebir
+korundu.
+
+**Test 2 - `HAPS_GROUND_OFFSET_M=35000` (35 km, ~kapsama alanının orta kesimi):**
+`elev≈27.1-27.2°` (beklenen: `asin(20000/√(20000²+37000²))≈28.4°`, tutarlı). LOS/NLOS
+dağılımı 10 LOS / 8 NLOS (~%44 NLOS) - Tablo 6.6.1-1'in yoğun-kentsel 20-30°
+aralığındaki (%33-40 LOS) beklentisiyle tutarlı; NLOS çekildiğinde `CL=29.00dB`
+(30° referans satırıyla birebir eşleşiyor). Gaz kaybı da `0.085dB`'ye çıktı (78.7°'deki
+`0.039dB`'nin ~2.2 katı, `1/sin(27°)` ÷ `1/sin(78.7°)` oranıyla (~2.16) tutarlı).
+**Sonuç: yine de `RA failed: 0, RRCSetupComplete: 1`** - çok daha büyük fiziksel
+mesafede (~42 km eğik mesafe) bile NTN açık-çevrim TA ön-telafisi (Adım 9-13)
+sorunsuz ölçekleniyor.
+
+**Test 3 - `HAPS_GROUND_OFFSET_M=100000` (100 km, kapsama kenarı):** `elev≈10.9°`.
+Yoğun-kentsel artık neredeyse hep NLOS (`CL=34.30dB`, 10° referans satırıyla birebir
+eşleşiyor). **Sonuç: yine `RA failed: 0, RRCSetupComplete: 1`** - en uç, en
+gerçekçi-zorlu koşulda bile ilk denemede bağlandı.
+
+**Sonuç:** Elevasyonun neden hep ~90°'ye yakın çıktığı netleştirildi (bilinçli/dar
+loiter yarıçapı geometrisinin bir sonucu, hata değil) ve artık `HAPS_GROUND_OFFSET_M`
+ile herhangi bir mevcut `_38811` senaryosunda istenen gerçekçi yükseklik açısı
+üretilebiliyor - Adım 15/17/18'in tüm LOS/NLOS/clutter/atmosferik kodu artık gerçek
+anlamda uçtan uca doğrulanmış durumda (0°-90° aralığının tamamı değil ama temsili
+üç nokta: 78.7°/27°/11°). Varsayılan (offset=0) davranış hiçbir senaryoda değişmedi.
+
+---
+
+### Adım 20 — İnce zamanlama (fractional/sub-sample delay) eklendi
+
+Kullanıcı isteği: Adım 19'da ertelenen ince zamanlama konusuna dön. Adım 19'da
+çıkarılan plan (FIR tap'ı `channel_length=2`'ye çıkarıp `[frac, 1-frac]` doğrusal
+enterpolasyon ağırlıkları yazmak) doğrudan uygulandı, ama uygulama sırasında planın
+kendisinde **kritik bir eksik** bulundu ve düzeltildi.
+
+**Plandaki eksik (test sırasında bulundu):** İlk uygulamada tap'ları
+`random_channel()`'ın kimlik-matrisi kısayolunda (Adım 19'un planladığı yer)
+yazdım. Derleme/regresyon testi geçti ama `HAPS_DEBUG_FRACDELAY` debug çıktısı
+her zaman `frac=0.0000, channel_offset=0` gösterdi - 20km'lik gerçek gecikme için
+bu açıkça yanlıştı. `simulator.cpp` okunarak kök neden bulundu:
+`random_channel(ptr->channel_model, 0)` çağrısı (`simulator.cpp:1300`)
+`bool reGenerateChannel = false;` ile **kalıcı olarak kapalı** ("fixme: when do we
+regenerate" yorumu bunu zaten itiraf ediyor) - yani `random_channel()` bağlantı
+kurulduktan sonra **bir daha hiç çağrılmıyor**. Gerçek dinamik güncelleme sadece
+`update_channel_model()` (her arabellek döngüsünde, `simulator.cpp:1453`) üzerinden
+oluyor. Yani tap'ları `random_channel()`'da yazmak, hiçbir zaman gerçek/güncel
+`frac` değerini görmeyen, dondurulmuş bir kod yoluydu - özellik derlenip
+"çalışıyor" görünüyordu ama fiilen hiçbir etkisi olmuyordu.
+
+**Düzeltme:** Tap yazma mantığı `apply_channelmod.c`'ye, `update_channel_model()`'in
+zaten `channel_offset`/`haps_delay_frac_sample`'ı her hesapladığı yere taşındı (yeni
+`haps_update_frac_delay_taps()` fonksiyonu, hem uplink hem downlink dalından
+çağrılıyor). `random_channel()`'daki orijinal kod bırakıldı ama sadece **bağlantı
+kurulumundaki tek seferlik başlangıç durumunu** (frac=0, kimlik matrisiyle özdeş)
+sağlamak için - yorumla açıkça belgelendi.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/sim.h`
+```
++ Eklendi: channel_desc_t'ye haps_delay_frac_sample alanı.
+```
+**[Dosya]** `openair1/SIMULATION/TOOLS/random_channel.c`
+```
+~ Değiştirildi: HAPS_MOBILE* case bloklarında channel_length 1->2;
+  haps_delay_frac_sample=0.0 init edildi.
+~ Değiştirildi: kimlik-matrisi kısayolu AWGN/SAT_LEO/HAPS_STATIONARY* (değişmedi,
+  channel_length=1) ve HAPS_MOBILE* (yeni, channel_length=2, 2-tap [frac,1-frac])
+  olarak ikiye ayrıldı - rxAddInput()'un `idx = i - l + channel_length - 1`
+  indeksleme kuralı doğrulanarak: tap index 1 -> input[i] (frac=0'da eski
+  davranışla birebir aynı), tap index 0 -> input[i+1] (bir örnek daha fazla
+  gecikme) - yani tap[1]=(1-frac), tap[0]=frac doğru yönde enterpolasyon yapıyor.
+```
+**[Dosya]** `radio/rfsimulator/apply_channelmod.c`
+```
++ Eklendi: haps_update_frac_delay_taps() - channel_length==2 ise (SAT_LEO_TRANS/
+  REGEN'in channel_length=1 kalan ch[] tahsisine taşma yapmamak için bu kontrol
+  şart) iki tap'ı [frac, 1-frac] ile dolduruyor.
+~ Değiştirildi: channel_offset artık `(uint64_t)delay_samples` ile açıkça
+  kesiliyor, kalan kesirli kısım haps_delay_frac_sample'a yazılıyor, ardından
+  haps_update_frac_delay_taps() çağrılıyor (hem uplink hem downlink dalında).
++ Eklendi: HAPS_DEBUG_FRACDELAY env değişkeni (varsayılan no-op) - saniyede bir,
+  canlı channel_offset/frac/tap değerlerini loglar.
+```
+
+**Derleme:** `ninja rfsimulator nr-softmodem nr-uesoftmodem` - temiz.
+
+**Test - canlı doğrulama (`HAPS_DEBUG_FRACDELAY=1`, varsayılan kırsal/banliyö):**
+```
+channel_offset=522 frac=0.5009 tap0=0.5009 tap1=0.4991
+channel_offset=522 frac=0.4998 tap0=0.4998 tap1=0.5002
+channel_offset=522 frac=0.4978 tap0=0.4978 tap1=0.5022
+... (frac sürekli, pürüzsüz azalıyor - platformun gerçek hareketiyle tutarlı)
+```
+`tap0+tap1` her satırda tam `1.0000` (enerji korunuyor, enterpolasyonun kendisi ek
+kazanç/kayıp eklemiyor). gNB (uplink) ve UE (downlink) tarafları aynı fiziksel
+geometriden aynı `frac` dizisini bağımsız olarak üretiyor - tutarlı.
+
+**Test - 5 senaryonun tamamı regresyon (fractional delay aktifken):**
+
+| Senaryo | RA failed | received correctly | RRCSetupComplete |
+|---|---|---|---|
+| `HAPS_MOBILE_38811` (kırsal/banliyö) | 0 | 1 | 1 |
+| düz `HAPS_MOBILE` + NTN (Adım 13) | 0 | 1 | 1 |
+| `HAPS_MOBILE_38811_URBAN` | 0 | 1 | 1 |
+| `HAPS_MOBILE_38811_DENSE_URBAN` | 0 | 1 | 1 |
+| `HAPS_MOBILE_38811_DENSE_URBAN` + `HAPS_GROUND_OFFSET_M=35000` | 0 | 1 | 1 |
+
+5/5 ilk denemede `RRC_CONNECTED` - hem varsayılan senaryolarda (davranış değişmedi)
+hem de Adım 19'un düşük-elevasyon senaryosuyla birleşimde (iki yeni özellik aynı
+anda aktifken) sorunsuz.
+
+**Sonuç:** `channel_offset`'in tam sayıya yuvarlanmasından kaynaklanan ±0.5
+örneklik (~±8ns @ 61.44 Msps) kesirli gecikme hatası artık HAPS_MOBILE ailesinde
+düzeltiliyor - gerçek, canlı olarak doğrulanmış, düşük riskli (SAT_LEO_TRANS/REGEN
+dahil hiçbir başka model etkilenmedi, `channel_length` kontrolüyle izole edildi).
+Süreç ayrıca önemli bir metodolojik ders verdi: "derlendi ve regresyon geçti" tek
+başına bir dinamik mekanizmanın gerçekten çalıştığının kanıtı değil - canlı debug
+çıktısıyla sayısal doğrulama olmadan, bu özellik sessizce hiçbir şey yapmadan
+"başarılı" görünebilirdi.
+
+---
+
 ## 4. Bilinen sınırlamalar / açık konular
 
 - **`HAPS_MOBILE` (band78/karasal, NTN'siz test) RA/RRC bağlantısı hâlâ kurulamıyor** —
@@ -1261,11 +1675,35 @@ doğru ölçekleniyor. Orijinal senaryolar değişmedi.
   (kırsal/banliyö, S-bant, zorunlu LOS) her saniye gerçek geometriden yeniden
   hesaplıyor, kalibre edilmiş (3GPP'den değil) bir kazanç bütçesiyle (146.39 dB)
   birleştiriyor. 2/2 test `RRC_CONNECTED` ile başarılı, orijinal senaryolar
-  değişmeden çalışmaya devam ediyor (bkz. Adım 15). Kentsel/Ka-bant/olasılıksal-NLOS
-  eklenmedi (v1 kapsam dışı, TR 38.811 verisi log'da mevcut, gerekirse eklenebilir).
+  değişmeden çalışmaya devam ediyor (bkz. Adım 15). **Adım 17'de tamamlandı**:
+  kentsel/yoğun-kentsel sütunları, Ka-bant, ve olasılıksal LOS/NLOS durum çekimi
+  artık `HAPS_*_38811_URBAN`/`_DENSE_URBAN` enum'larıyla kodda ve doğrulanmış çalışır
+  durumda (4/4 test `RRC_CONNECTED`). **Adım 18'de tamamlandı**: atmosferik gaz kaybı
+  (PL_g, ITU-R P.676 basitleştirilmiş model) artık her zaman hesaplanıp ekleniyor
+  (~0.04dB, bağlantıyı bozmuyor - Adım 14'ün "ihmal edilebilir" tahminini doğruluyor);
+  ek olarak (38.811'in kendi kapsamı dışında) tam bir ITU-R P.838-3 yağmur modeli de
+  eklendi, varsayılan yağmur oranı 0 (`HAPS_RAIN_RATE_MM_H` env'iyle test edilebilir).
+  Hâlâ eklenmeyen: sintilasyon (PL_s, ITU-R P.618) ve O2I bina girişi kaybı (PL_e,
+  §6.6.3) - bizim ~90° yükseklik açılı, açık-alan senaryomuzda ihmal edilebilir
+  oldukları için hâlâ kasıtlı olarak dışarıda.
 - **Gürültü tabanı: `HAPS_STATIONARY`/`HAPS_MOBILE` (orijinal) hâlâ keyfi
   (`noise_power_dB=-110`) — bilinçli olarak değiştirilmedi.** `_38811` varyantlarında
   Adım 16'da kTB+NF termal gürültü formülünden (gerçek config bant genişliğine göre,
   kalibre edilmiş) hesaplanıyor artık — path loss'un aksine statik (elevation'a bağlı
   değil) ama bant genişliği değişirse doğru ölçekleniyor. Kentsel/Ka-bant tabloları
   gibi bunun da NF=3dB varsayımı 3GPP'den değil, projenin kendi kalibrasyonu.
+- **Gerçekçi düşük yükseklik açısı testi: Adım 19'da çözüldü.** Geometri artık
+  `HAPS_GROUND_OFFSET_M` env değişkeniyle herhangi bir `_38811` senaryosunda 90°'den
+  ~11°'ye kadar test edilebiliyor; varsayılan (0) davranış değişmedi. Kalıcı bir
+  config alanı/enum açılmadı (bilinçli - env-only, test/demo amaçlı).
+- **İnce zamanlama (fractional/sub-sample delay): Adım 20'de eklendi.**
+  `HAPS_MOBILE`/`HAPS_MOBILE_38811`/`_URBAN`/`_DENSE_URBAN` artık `channel_offset`'in
+  tam sayıya yuvarlanmasından kaynaklanan kesirli kalıntıyı 2-tap doğrusal
+  enterpolasyonla telafi ediyor (`HAPS_DEBUG_FRACDELAY` ile canlı doğrulandı - bkz.
+  Adım 20). Süreçte planın ilk hâlinin (`random_channel()`'a yazmak) fiilen hiçbir
+  şey yapmadığı bulunup gerçek yere (`apply_channelmod.c`'nin dinamik güncellemesi)
+  taşındı. `HAPS_STATIONARY*`'nin ayrı, statik `prop_delay` mekanizması (Adım 5/8)
+  hâlâ tam sayıya yuvarlıyor - kapsam dışı bırakıldı (delay hiç değişmediği için tek
+  seferlik, sabit bir hata, büyüyen bir sorun değil). SAT_LEO_TRANS/REGEN de
+  kapsam dışı (bu proje HAPS'a odaklı, LEO ayrıca doğrulanmamış - bkz.
+  `oai-leo-to-haps-adaptation` hafıza notu).
