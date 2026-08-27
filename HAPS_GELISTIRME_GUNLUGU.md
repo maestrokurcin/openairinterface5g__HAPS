@@ -2016,6 +2016,117 @@ sorunlar çözüldü.
 
 ---
 
+### Adım 26 — Partnerin şemasına tam uyum: modüler mimariye geçiş (`haps_channel_ctx_t` + `haps_channel_process()`)
+
+Kullanıcı isteği: partnerin şemasındaki (Adım 17'de paylaşılan görsel) dosya-başına-
+modül mimarisine **tam** geçiş - kısmi (sadece geometri/yol-kaybını ayrı dosyalara
+taşımak) değil, `haps_channel_ctx_t` ve `haps_channel_process()`'i de içeren tam
+uyum. Kullanıcıya önce risk açıkça belirtildi: bu, `channel_desc_t`'nin (TÜM kanal
+modelleri - SCM_A/EPA/TDL_A-E/AWGN/SAT_LEO_TRANS/REGEN dahil - tarafından
+paylaşılan, HAPS'a özel olmayan bir OAI yapısı) etkilenmesini gerektiriyordu;
+kullanıcı yine de "tam" seçeneği seçti.
+
+**Mimari karar - riski nasıl azalttık**: `channel_desc_t`'yi HERKESİ etkileyecek
+şekilde yeniden düzenlemek yerine, TEK bir yeni alan eklendi:
+`haps_channel_ctx_t *haps_ctx` (HAPS-dışı her model için `NULL`, sıfır etki). Önceki
+9 HAPS-özel alan (`haps_loiter_radius`, `haps_platform_speed`, `haps_ground_offset_m`,
+`haps_delay_frac_sample`, `use_38811_pathloss`, `haps_38811_scenario`, `haps_is_los`,
+`haps_elevation_deg`, `haps_tdl_state[3]`) bu yeni struct'ın içine taşındı (önek
+kaldırılarak: `loiter_radius`, `platform_speed`, vb.).
+
+**Dosya planı** (partnerin şemasındaki adım numaralarıyla eşleştirilerek):
+- **Adım 4 (haps_config)**: `openair1/SIMULATION/TOOLS/haps_config.c` — **yeni** -
+  `haps_config_new(channel_model)`: bir `SCM_t` enum'undan `haps_channel_ctx_t`
+  varsayılanlarını üretir (Adım 1/7/15/17'de inline yapılan atamalarla birebir aynı
+  değerler, sadece tek bir yere taşındı).
+- **Adım 5 (haps_geometry)**: `openair1/SIMULATION/TOOLS/haps_geometry.c` — **yeni** -
+  `haps_compute_geometry()`: saf loiter-dairesi kinematiği (Adım 7/19), hiçbir
+  `channel_desc_t`/NR-MAC bağımlılığı yok - sayı girer, sayı çıkar.
+  yeni öz.
+- **Adım 6 (haps_propagation)**: `openair1/SIMULATION/TOOLS/haps_propagation.c` —
+  **yeni** - `haps_38811_path_loss_dB()` `apply_channelmod.c`'den buraya taşındı
+  (Adım 15/17/18/22'nin fiziği birebir aynı, sadece organizasyon değişti).
+- **Adım 8 (haps_channel + ctx)**: `radio/rfsimulator/haps_channel.h/.c` — **yeni** -
+  `haps_channel_process()`: geometri+gecikme/Doppler+fraksiyonel-gecikme/TDL
+  tap'ları+yol kaybı+SIB19 güncellemesini birleştiren tek giriş noktası (Adım 7-21'in
+  eski `update_channel_model()` HAPS dalının doğrudan taşınmış hali). **Bu dosya
+  `openair1/SIMULATION/TOOLS/` yerine `radio/rfsimulator/`'da yaşıyor** çünkü
+  `nr_update_sib19()`'u çağırıyor - bu, düşük seviyeli SIMU kütüphanesinin (rfsimulator
+  zaten bağlıyor ama SIMU'nun kendisi NR_MAC_gNB'ye hiç bağlı değil) alamayacağı bir
+  bağımlılık gerektiriyor.
+- **Adım 9-10 (OAI bağlantısı/RFsimulator)**: `apply_channelmod.c`'nin
+  `update_channel_model()`'i artık sadece bir **dispatcher**: HAPS modeli ise
+  `haps_channel_process()`'e yönlendiriyor, değilse (SAT_LEO_TRANS/REGEN) **hiç
+  değişmemiş, aynen kalan** eski Kepler-yörünge kodunu çalıştırıyor. Dosya 530
+  satırdan 305 satıra indi.
+
+**Kritik güvenlik kararı - LEO'ya dokunulmadı**: `update_channel_model()`'in eski
+HAPS/LEO ortak iskeleti (uplink/downlink ayrımı, SIB19 tetikleme koşulu) HAPS için
+**kopyalanıp** `haps_channel_process()`'e taşındı (LEO'nun hiç girmediği
+`SAT_LEO_TRANS`'a-özel dallar - `dist_sat_gnb`/`vel_sat_gnb`/`acc_sat_gnb` - HAPS
+kopyasında basitçe 0 olarak sabitlendi, zaten HAPS için hep 0'dı). LEO'nun kendi
+kopyası `apply_channelmod.c`'de **satır satır aynı** bırakıldı - bu proje LEO'yu bu
+makinede hiç doğrulayamadığı için (`oai-leo-to-haps-adaptation` hafıza notu), LEO
+kodunu "iyileştirmeye" çalışmak yerine olduğu gibi korumak tercih edildi.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/sim.h`
+```
++ Eklendi: haps_channel_ctx_t struct'ı (9 eski alan, önek kaldırılarak).
+~ Değiştirildi: channel_desc_t'deki 9 HAPS-özel alan -> tek `haps_channel_ctx_t
+  *haps_ctx` işaretçisi.
++ Eklendi: haps_config_new()/haps_compute_geometry()/haps_38811_path_loss_dB()
+  deklarasyonları.
+```
+**[Dosya]** `openair1/SIMULATION/TOOLS/random_channel.c`
+```
+~ Değiştirildi: HAPS_STATIONARY*/HAPS_MOBILE* case blokları artık
+  `chan_desc->haps_ctx = haps_config_new(channel_model);` çağırıyor, inline alan
+  atamaları yerine.
+~ Değiştirildi: kimlik-matrisi/fraksiyonel-gecikme kısayolu, free_channel_desc_scm()
+  - hepsi `->haps_ctx->` üzerinden erişecek şekilde güncellendi;
+  free_channel_desc_scm()'e `free(ch->haps_ctx)` eklendi (HAPS-dışı modeller için
+  NULL, no-op).
+```
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_tdl.c`
+```
+~ Değiştirildi: tüm alan erişimleri `channelDesc->haps_*` -> `channelDesc->haps_ctx->*`.
+```
+**[Dosya]** `CMakeLists.txt`, `radio/rfsimulator/CMakeLists.txt`
+```
++ Eklendi: haps_config.c/haps_geometry.c/haps_propagation.c (SIMUSRC),
+  radio/rfsimulator/haps_channel.c (rfsimulator kütüphanesi).
+```
+
+**Derleme**: `ninja rfsimulator nr-softmodem nr-uesoftmodem` - **ilk denemede temiz**,
+hiç hata yok.
+
+**Test - 8 senaryonun tamamı regresyon** (bu, kod tabanının neredeyse tamamına
+dokunan en büyük tek değişiklik olduğu için özellikle kapsamlı tutuldu):
+
+| Senaryo | RA failed | RRCSetupComplete | Not |
+|---|---|---|---|
+| `HAPS_STATIONARY` (band78, NTN'siz) | 0 | 1 | |
+| Düz `HAPS_MOBILE` + NTN (Adım 13) | 0 | 1 | |
+| `HAPS_MOBILE_38811` (kırsal/banliyö) | 0 | 1 | TR 38.811 log değerleri aynı |
+| `HAPS_MOBILE_38811_URBAN` | 0 | 1 | |
+| `HAPS_MOBILE_38811_DENSE_URBAN` | 0 | 1 | TDL enerjisi hâlâ gerçekten dalgalanıyor |
+| + `HAPS_GROUND_OFFSET_M=35000` | 0 | 1 | elev=27.1°, CL=29.00dB - tablo değerleriyle eşleşiyor |
+| Fraksiyonel gecikme debug (düz `HAPS_MOBILE`) | 0 | 1 | frac 0.5008→0.4900 pürüzsüz evriliyor, tap0+tap1=1.0000 |
+| `HAPS_MOBILE` band78/NTN'siz (Adım 24/25) | 1 (normal varyans) | 1 | 0 TA/SRS hatası |
+
+**8/8 sıfır regresyon.** Her yeni dosya bağımsız derlendi (`ninja` çıktısında görüldü:
+`haps_config.c.o`, `haps_geometry.c.o`, `haps_propagation.c.o`,
+`radio/rfsimulator/.../haps_channel.c.o` - hepsi ayrı derleme birimleri).
+
+**Sonuç**: Proje artık partnerin şemasındaki dosya-başına-modül mimarisine tam
+uyumlu - `haps_config`/`haps_geometry`/`haps_propagation`/`haps_gas`/`haps_rain`/
+`haps_scint`/`haps_tdl`/`haps_channel` (+ `haps_channel_ctx_t`), hepsi ayrı dosyalar,
+hiçbiri diğer (HAPS-dışı) kanal modellerini etkilemiyor. `apply_channelmod.c` 530
+satırdan 305 satıra indi ve artık sadece SAT_LEO_TRANS/REGEN'i (değişmemiş) ve HAPS
+dispatch'ini içeriyor.
+
+---
+
 ## 4. Bilinen sınırlamalar / açık konular
 
 - **`HAPS_MOBILE` (band78/karasal, NTN'siz test): Adım 24-25'te tamamen çözüldü.**
@@ -2093,3 +2204,11 @@ sorunlar çözüldü.
   (gerçek bir UE hızı parametresinden değil, dokümante edilmiş temsili bir değerden
   türüyor - bu simülatörde hiç UE hızı yok). `HAPS_STATIONARY*` etkilenmedi
   (TDL sadece dinamik-gecikme ailesine eklendi).
+- **Partnerle mimari uyum: Adım 26'da tamamlandı.** Proje artık partnerin
+  şemasındaki dosya-başına-modül mimarisine tam uyumlu -
+  `haps_config`/`haps_geometry`/`haps_propagation`/`haps_gas`/`haps_rain`/
+  `haps_scint`/`haps_tdl`/`haps_channel` (+ `haps_channel_ctx_t`,
+  `haps_channel_process()`), hepsi ayrı dosyalar. Paylaşılan `channel_desc_t`
+  struct'ı sadece tek bir `haps_ctx` işaretçisi kazandı (HAPS-dışı modeller için
+  NULL) - SCM_A/EPA/TDL/AWGN/SAT_LEO_TRANS/REGEN hiç etkilenmedi (LEO'nun kendi kodu
+  hiç değişmeden, satır satır aynı kaldı). 8/8 regresyon testi sıfır hatayla geçti.
