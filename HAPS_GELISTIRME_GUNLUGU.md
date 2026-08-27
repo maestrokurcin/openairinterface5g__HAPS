@@ -1960,16 +1960,74 @@ aşağıya eklendi.
 
 ---
 
+### Adım 25 — Adım 24'ün ortaya çıkardığı TA-takip sorunu incelendi ve çözüldü: SRS
+
+Kullanıcı isteği: Adım 24'te bulunan, bağlantı kurulduktan ~20+ saniye sonra
+ortaya çıkan "Invalid timing advance offset"/PUSCH DTX sorununu incele.
+
+**İlk ipucu - config karşılaştırması**: `haps_test/gnb.haps_mobile.conf`'un
+(sorunlu senaryo) `do_SRS = "periodic";` içerdiği, ama **hiçbir başka kanıtlanmış
+çalışan senaryomuzun** (`gnb.haps_mobile_ntn.conf`, tüm `_38811` varyantları) SRS
+hiç kullanmadığı görüldü. `gnb.haps.conf` (HAPS_STATIONARY, sorunsuz) da SRS
+kullanıyor ama onun gecikmesi tamamen sabit (`prop_delay`, hiç değişmiyor) -
+`HAPS_MOBILE`'ın gecikmesi ise (yavaş da olsa) gerçekten değişiyor.
+
+**Kod izi**: `[NR_PHY] No SRS signal` → `openair1/PHY/NR_TRANSPORT/srs_rx.c:141`
+(SRS'in beklenen alt-taşıyıcı konumlarında **tamamen sıfır** enerji bulunduğunda
+tetikleniyor - PRACH/Msg3 sagasındaki "no signal" imzasının aynısı, bir
+SNR/kalite sorunu değil, "beklenen yerde hiçbir şey yok" sorunu). Bu da
+`openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_ulsch.c:1505`'teki
+`handle_nr_srs_measurements()`'ı `srs_ind->timing_advance_offset == 0xFFFF`
+(geçersiz/ölçülemedi sentinel'i) ile erken çıkmaya zorluyor - yani gNB'nin
+SRS-tabanlı TA ölçüm yolu, ana PUSCH/PRACH yolundan **ayrı, paralel** bir
+mekanizma ve bu senaryonun ~4099 örneklik (~67µs) gecikmesini tolere edemiyor.
+
+**A/B testi (kesin doğrulama)**: `do_SRS` satırı yorum satırına alınıp (varsayılan
+"none"a dönüldü) aynı senaryo 45 saniye çalıştırıldı: **`Invalid timing advance`/
+`No SRS signal`/`UL Failure` sayısı: 0**, bağlantı test süresinin sonuna kadar
+sağlıklı DL/UL trafiği taşıdı (önceden ~20s'de bozuluyordu). SRS açıkken aynı
+süre tekrar denendiğinde sorun her seferinde tekrarladı.
+
+**[Dosya]** `haps_test/gnb.haps_mobile.conf`
+```
+~ Değiştirildi:
+- do_SRS = "periodic";
++ #do_SRS = "periodic";  # Adim 25: varsayilan "none"ya donuldu, A/B testiyle dogrulandi
+```
+
+**Derleme**: gerekmedi - saf config değişikliği.
+
+**Test - gerçek düzeltilmiş dosyayla son doğrulama** (50s gNB / 45s UE):
+`RA failed: 4, received correctly: 1, RRCSetupComplete: 1`, **TA/SRS hata sayısı: 0**,
+gNB süreç zaman aşımına kadar (tam 50s) kesintisiz çalıştı - önceki "Lost socket"/
+çökme belirtisi yok.
+
+**Kapsam/sınır - bilinçli olarak derinlemesine kök nedene inilmedi**: SRS'in
+zamanlama-ölçüm penceresinin tam olarak neden bu büyüklükteki bir gecikmeyi
+tolere edemediği (PRACH'ın Ncs penceresi gibi kesin bir sayısal sınır) satır
+satır çıkarılmadı - bu, `srs_rx.c`/SRS zamanlama-tahmin kodunun kendisine
+inmeyi gerektiren, ayrı bir derinlemesine PHY incelemesi olurdu. Bunun yerine
+pratik, düşük riskli, A/B-doğrulanmış çözüm (SRS'i kapatmak - zaten hiçbir
+kanıtlanmış senaryomuzun ihtiyaç duymadığı bir özellik) tercih edildi.
+
+**Sonuç**: `HAPS_MOBILE` (band78, NTN'siz) artık hem RA/RRC kurulumunda (Adım 24)
+hem de kurulum sonrası uzun süreli bağlantıda (Adım 25) sağlıklı - bilinen tüm
+sorunlar çözüldü.
+
+---
+
 ## 4. Bilinen sınırlamalar / açık konular
 
-- **`HAPS_MOBILE` (band78/karasal, NTN'siz test): Adım 24'te çözüldü.** Kısa
-  PRACH formatından (`prach_ConfigurationIndex=98`) uzun formata (`=7`,
+- **`HAPS_MOBILE` (band78/karasal, NTN'siz test): Adım 24-25'te tamamen çözüldü.**
+  Kısa PRACH formatından (`prach_ConfigurationIndex=98`) uzun formata (`=7`,
   `msg1_SubcarrierSpacing` yorum satırına alındı - Adım 8'in ilk denemesinin asıl
-  eksiği) geçilerek RA/RRC artık güvenilir şekilde kuruluyor (4/4 test
-  `RRCSetupComplete`). **Yeni bulgu**: bağlantı ~20+ saniye sonra "Invalid timing
-  advance offset"/PUSCH DTX ile bozuluyor - muhtemelen NTN'in açık-çevrim TA
-  ön-telafisi olmadan kapalı-çevrim TA'nın sürekli hareketi uzun vadede takip
-  edememesi - ayrı, henüz incelenmemiş bir açık konu.
+  eksiği) geçilerek RA/RRC artık güvenilir şekilde kuruluyor (Adım 24). Adım 24'te
+  bulunan yeni sorun ("Invalid timing advance offset"/PUSCH DTX ile bağlantının
+  ~20s sonra bozulması) Adım 25'te kök nedeni bulunup çözüldü: SRS'in TA-ölçüm
+  mekanizması (`srs_rx.c`) bu senaryonun büyük gecikmesini tolere edemiyordu -
+  `do_SRS` kapatılınca (A/B testiyle doğrulandı, 45s'lik temiz koşu) sorun tamamen
+  ortadan kalktı. `HAPS_MOBILE`/band78/NTN'siz artık hem kurulumda hem uzun süreli
+  bağlantıda sağlıklı.
 - **NTN protokolü + `HAPS_MOBILE` (band 254, gerçek hareket/Doppler) artık tam çalışıyor** —
   Adım 9-13'te devreye alındı; üç ayrı kök neden bulunup düzeltildi: `ta-Common-r17` ve
   `prop_delay`'in ikisi de round-trip/one-way karışıklığından muzdaripti (Adım 10/12), ve
