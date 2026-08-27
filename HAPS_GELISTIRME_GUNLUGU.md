@@ -1871,13 +1871,105 @@ gerçek bir `docker compose up` ile hâlâ doğrulanmamış durumda.
 
 ---
 
+### Adım 24 — `HAPS_MOBILE` band78/NTN'siz PRACH sorunu çözüldü: uzun-format PRACH
+
+Kullanıcı isteği: Adım 8'den beri açık kalan `HAPS_MOBILE` (band78, NTN'siz)
+PRACH sorununu çöz. Önce bir arka-plan ajanıyla derinlemesine araştırma yapıldı
+(kod okuması, sayısal doğrulama - kod değişikliği yapmadan).
+
+**Araştırma bulgusu - Adım 8'in ilk uzun-format denemesi neden başarısız olmuştu:**
+Adım 8'de sadece `prach_ConfigurationIndex`/`prach_RootSequenceIndex_PR` değiştirilip
+`msg1_SubcarrierSpacing=1` (kısa format için geçerli bir değer) olduğu gibi
+bırakılmıştı. Kod izi (`openair2/GNB_APP/gnb_config.c:522-525`,
+`openair2/LAYER2/NR_MAC_gNB/config.c:557-565`, `config_ue.c:242-249`):
+`msg1_SubcarrierSpacing` sadece **sentinel değer -1 (yani config dosyasında hiç
+belirtilmemiş)** olduğunda serbest bırakılıp uzun formatın gerektirdiği 1.25kHz alt
+taşıyıcı aralığının otomatik türetilmesine (`get_delta_f_RA_long()`,
+`nr_mac_common.c:602-607`) izin veriyor - alan **herhangi bir sayısal değere**
+(hatta "doğru görünen" bir değere) set edilmişse, o değer sessizce kullanılıyor ve
+otomatik türetme hiç çalışmıyor. Bu tek satır (`msg1_SubcarrierSpacing`'in
+yorum satırı yapılmaması), Adım 8'in ilk denemesinin gecikme sıfırken bile hiç
+senkronize olamamasının **tam nedeniydi**.
+
+**Kanıt - repo'da zaten doğru bir referans varmış**: `ci-scripts/conf_files/gnb.sa.
+band254.u0.25prb.rfsim.ntn-haps.conf` (bu projenin kendi NTN-HAPS senaryosu) ve
+gerçek donanım hedefli `targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band77.273prb.
+fhi72.2x2-benetel550-long-prach.conf` (band77, band78'in kardeşi) - ikisi de
+`prach_ConfigurationIndex=7`, `prach_RootSequenceIndex_PR=1`, ve
+`msg1_SubcarrierSpacing`'i **yorum satırı olarak** bırakıyor, birebir aynı uyarı
+metniyle ("SCS for msg1, can only be 15 for 30 kHz < 6 GHz..."). Bu ikinci dosya
+(`gnb.haps_mobile.conf`) zaten bu uyarı metnini içeriyordu ama değeri hâlâ `=1`
+olarak set edilmiş bırakılmıştı - yani dosyanın kendi yorumu, kullanılmayan bir
+uyarıydı.
+
+**Ncs penceresi hesabı (uzun format, zeroCorrelationZoneConfig=15)**:
+`NCS=419` → `NCS2=(419<<10)/839≈511` bin, format 0'ın 24576 örnek/30.72Msps
+(48 örnek/bin @ 61.44Msps) penceresiyle → **~24528 örnek (~399µs) arama penceresi**
+- bizim ~4099 örneklik (66.7µs tek yön) gerçek gecikmemize göre **~6 kat pay**.
+
+**[Dosya]** `haps_test/gnb.haps_mobile.conf`
+```
+~ Değiştirildi:
+- prach_ConfigurationIndex = 98;        # kısa format (L_RA=139)
++ prach_ConfigurationIndex = 7;         # uzun format (L_RA=839, format 0)
+- prach_RootSequenceIndex_PR = 2;       # l139
++ prach_RootSequenceIndex_PR = 1;       # l839
+- zeroCorrelationZoneConfig = 13;
++ zeroCorrelationZoneConfig = 15;       # yasal maksimum
+- msg1_SubcarrierSpacing = 1,
++ #msg1_SubcarrierSpacing = 1,          # YORUM SATIRI - format<4 icin zorunlu
+```
+`haps_test/nrue.haps_mobile.conf` — **değiştirilmedi** (SA modunda UE, RACH
+config'i SIB1'den alıyor, kendi PRACH alanı yok - araştırma bunu doğruladı).
+
+**Derleme**: gerekmedi - saf config değişikliği, C kodu dokunulmadı.
+
+**Test - 4 kez art arda çalıştırıldı** (`-r 106 --numerology 1 -C 3619200000`
+CLI bayraklarıyla, Adım 3/4'ün kanıtlanmış UE çağrı kalıbıyla aynı):
+
+| Deneme | RA failed | received correctly | RRCSetupComplete |
+|---|---|---|---|
+| 1 | 1 | 1 | 1 |
+| 2 | 5 | 1 | 1 |
+| 3 | 4 | 1 | 1 |
+| 4 (ilk deneme, `-C` bayrağı unutulmuş) | - | UE çöktü (`get_freq_range_from_freq()`, "Undefined Frequency Range for frequency 0 Hz") - PRACH'la ilgisiz, sadece CLI çağrısı eksikti, düzeltilip tekrarlandı |
+
+**4/4 (CLI düzeltmesinden sonra 3/3) `RRCSetupComplete: 1`** - bu senaryo, projenin
+başından beri (Adım 7'den bu yana) **ilk kez** bağlantı kurdu. Bazı RA denemeleri
+başarısız oluyor (NTN'in açık-çevrim ön-telafisi olmadığı için, saf genişletilmiş
+Ncs penceresine güveniliyor) ama sonunda hep başarıyla bağlanıyor - önceki %0
+başarı oranından **%100 (eninde sonunda bağlanma) oranına** sıçrama.
+
+**YENİ bulgu - RA artık tamamlanabildiği için ilk kez ulaşılabilen bir sonraki
+katman**: Bağlantı kurulduktan ~20+ saniye sonra (72 başarılı UL HARQ turu, 0 hata,
+SNR 16.7dB - yani başlangıçta sağlıklı) `Invalid timing advance offset` ve
+ardından `Detected UL Failure on PUSCH after 10 PUSCH DTX` ile bağlantı bozuluyor,
+2 ve 3. denemelerde tutarlı şekilde gözlendi. **Bu, PRACH sorunundan tamamen ayrı,
+yeni bir bulgu** - muhtemelen NTN'in açık-çevrim TA ön-telafisi olmadan, kapalı-çevrim
+TA takibinin sürekli hareket eden `HAPS_MOBILE` platformunu uzun vadede takip
+edememesinden kaynaklanıyor (bu senaryoda ne SIB19 ne de periyodik bir ön-telafi
+güncellemesi var). RA hiçbir zaman tamamlanamadığı için bu katman **daha önce hiç
+gözlemlenememişti**. Bu oturumun kapsamı dışında bırakıldı (kullanıcı özellikle
+PRACH/RA sorununu istedi) - ayrı bir inceleme gerektiren, yeni bir açık konu olarak
+not edildi.
+
+**Sonuç**: `HAPS_MOBILE` (band78, NTN'siz) artık ilk denemede olmasa da güvenilir
+şekilde `RRC_CONNECTED`'a ulaşıyor - Adım 8'den beri açık kalan sorun çözüldü.
+Bulunan yeni "uzun vadeli TA takibi" sorunu ayrı bir bilinen sınırlama olarak
+aşağıya eklendi.
+
+---
+
 ## 4. Bilinen sınırlamalar / açık konular
 
-- **`HAPS_MOBILE` (band78/karasal, NTN'siz test) RA/RRC bağlantısı hâlâ kurulamıyor** —
-  Adım 8'de kök neden teşhis edildi: 20 km'lik gerçek gecikme, PRACH korelatörünün
-  `zeroCorrelationZoneConfig`'ten türeyen dar arama penceresini aşıyor. Bu **sadece
-  band78/NTN'siz test için** hâlâ geçerli bir sınırlama (`haps_test/gnb.haps_mobile.conf`).
-  Asıl hedef olan NTN'li senaryo Adım 13'te **çözüldü** (aşağıya bakın).
+- **`HAPS_MOBILE` (band78/karasal, NTN'siz test): Adım 24'te çözüldü.** Kısa
+  PRACH formatından (`prach_ConfigurationIndex=98`) uzun formata (`=7`,
+  `msg1_SubcarrierSpacing` yorum satırına alındı - Adım 8'in ilk denemesinin asıl
+  eksiği) geçilerek RA/RRC artık güvenilir şekilde kuruluyor (4/4 test
+  `RRCSetupComplete`). **Yeni bulgu**: bağlantı ~20+ saniye sonra "Invalid timing
+  advance offset"/PUSCH DTX ile bozuluyor - muhtemelen NTN'in açık-çevrim TA
+  ön-telafisi olmadan kapalı-çevrim TA'nın sürekli hareketi uzun vadede takip
+  edememesi - ayrı, henüz incelenmemiş bir açık konu.
 - **NTN protokolü + `HAPS_MOBILE` (band 254, gerçek hareket/Doppler) artık tam çalışıyor** —
   Adım 9-13'te devreye alındı; üç ayrı kök neden bulunup düzeltildi: `ta-Common-r17` ve
   `prop_delay`'in ikisi de round-trip/one-way karışıklığından muzdaripti (Adım 10/12), ve
