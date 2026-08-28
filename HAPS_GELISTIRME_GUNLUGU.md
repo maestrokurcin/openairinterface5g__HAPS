@@ -2228,10 +2228,14 @@ dispatch'ini içeriyor.
   önceden her zaman S-bant satırı okunuyordu, artık `center_freq`'e göre doğru
   tablo (Tablo 6.7.2-1b..8b) seçiliyor; bu projede kanıtlanmış bir Ka-bant
   rfsim senaryosu olmadığı için canlı bağlantıyla doğrulanamadı, sadece S-bant
-  regresyonu (değişmedi) test edildi. Kasıtlı olarak hâlâ dışarıda bırakılan:
-  `fd_local=1Hz`
-  (gerçek bir UE hızı parametresinden değil, dokümante edilmiş temsili bir değerden
-  türüyor - bu simülatörde hiç UE hızı yok). `HAPS_STATIONARY*` etkilenmedi
+  regresyonu (değişmedi) test edildi. **`fd_local`: Adım 33'te gerçek bir
+  (varsayılan) UE hızından türetilecek şekilde değiştirildi** - `f_d=v*fc/c`,
+  varsayılan 3km/h (`HAPS_UE_SPEED_MPS` ile değiştirilebilir), artık carrier
+  frekansına göre doğru ölçekleniyor. Bilinçli kabul edilen yan etki: bu,
+  kanıtlanmış senaryolarda ara sıra derin-sönüm kaynaklı bağlantı kesilmesine
+  yol açabiliyor (test edildi, gözlemlendi) - kullanıcı bunu gerçekçi fizik
+  olarak kabul edip varsayılanı böyle bıraktı (Adım 21'in eski 1Hz'i tam da bu
+  riskten kaçınmak için seçmişti). `HAPS_STATIONARY*` etkilenmedi
   (TDL sadece dinamik-gecikme ailesine eklendi). **Adım 27'de**, `use_38811_pathloss`
   düz `HAPS_MOBILE`'a da açılınca TDL'nin ona da istemeden bulaştığı (ve bir
   regresyon testinde bağlantıyı durdurduğu) görüldü - `enable_small_scale_fading`
@@ -2690,3 +2694,61 @@ için kabul edilebilir bir risk olarak değerlendirildi.
 
 **Sonuç**: Ka-bant DS tabloları artık projede mevcut, S-bant davranışı
 değişmedi (regresyonla doğrulandı).
+
+---
+
+### Adım 33 — `fd_local`'ı gerçek UE hızından türetme
+
+Kullanıcı isteği: "başka eksiğimiz kalmadı değil mi" sorusuna verdiğim yanıtta
+listelenen bilinçli kapsam sınırlarından, kullanıcı `fd_local=1Hz`'in gerçek
+bir UE hızından türetilmesini istedi.
+
+**Fizik**: `fd_local`, Şekil 6.9.2-1'in "yerel saçılmadan kaynaklanan Doppler
+yayılımı"dır (platform/uydu Doppler'inden ayrı - o zaten `haps_channel.c`'de
+gerçek geometriden hesaplanıyor). Klasik Jakes/Clarke ilişkisi:
+`f_d = v_UE * f_c / c`. Adım 21'de bu, bu simülatörün hiç UE hızı parametresi
+olmadığı gerekçesiyle sabit, temsili bir değere (1Hz) bağlanmıştı - frekanstan
+bağımsız, tek bir sayı.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_tdl.c`
+```
+- #define HAPS_TDL_FD_LOCAL_HZ 1.0
++ #define HAPS_UE_SPEED_DEFAULT_MPS (3.0 / 3.6) // 3 km/h, ITU-R M.1225
+  "pedestrian" referans hizi
+~ haps_update_tdl_taps(): fd_local artik HAPS_UE_SPEED_MPS ortam
+  degiskeninden (yoksa varsayilan 3km/h) ve channelDesc->center_freq'den
+  f_d = v*fc/c ile hesaplaniyor - artik carrier frekansina dogru olcekleniyor
+  (eskiden hicbir frekansa gore degismiyordu). HAPS_DEBUG_TDL izine
+  ue_speed/fd_local eklendi.
+```
+
+**Derleme**: `ninja rfsimulator nr-softmodem nr-uesoftmodem` - temiz.
+
+**Test - önemli bir bulgu**: `gnb/nrue.haps_mobile_ntn_38811.conf` (S-bant,
+band254) ile 40s/30s'lik bir koşuda, bu senaryonun uplink frekansında
+(~1.61GHz) `fd_local≈4.489Hz` (eski 1Hz'in ~4.5 katı) hesaplandı ve **t≈20s'de
+gerçek bir orta-test bağlantı kesilmesi** gözlendi: `total_tap_energy`
+0.006-0.06'ya düşen derin bir sönüm, "Detected UL Failure on PUSCH after 10
+PUSCH DTX, stopping scheduling" ile sonuçlandı. Bu, Adım 21'in sabit 1Hz'i
+özellikle **bu riskten kaçınmak için** seçtiği senaryonun ta kendisiydi
+("without being an unrealistically fast ... fade for what is otherwise a
+static terminal").
+
+Kullanıcıya bu değiş-tokuş açıkça sunuldu: gerçek fiziği kabul edip böyle
+bırak (gerçekçi ama bazen istikrarsız) vs. varsayılanı yavaş tutup gerçekçi
+hızı opt-in yap (kanıtlanmış senaryolar hiç etkilenmesin). **Kullanıcı
+"gerçek fiziği kabul et, böyle bırak"ı seçti** - 3km/h varsayılan olarak
+kaldı, bu tür ara sıra oluşan derin-sönüm kaynaklı bağlantı kesilmeleri artık
+kasıtlı olarak kabul edilen, gerçekçi bir davranış (gerçek bir yürüyen UE'nin
+de yaşayacağı bir şey - HARQ/yeniden iletim marjını aşan bir derin sönüm).
+
+**Ek doğrulama**: `gnb/nrue.haps_mobile_ntn_38811_2x2.conf` (MIMO, 2x2) 20s'lik
+bir koşuda çökme/assert olmadan çalıştı (`n_pairs=4`, `synchronized`+
+`RRCSetupComplete`) - yeni formül MIMO/TDL-B-D kod yollarını bozmuyor.
+
+**Sonuç**: `fd_local` artık gerçek bir varsayılan UE hızından (3km/h,
+`HAPS_UE_SPEED_MPS` ile değiştirilebilir) ve gerçek carrier frekansından
+türetiliyor - eskiden olduğu gibi frekanstan bağımsız sabit bir sayı değil.
+Bu, projenin kanıtlanmış senaryolarının varsayılan davranışını **bilinçli
+olarak** değiştiriyor (bazen ara sıra bağlantı kesilmesi) - kullanıcı bunu
+gerçekçi fizik olarak kabul etti.
