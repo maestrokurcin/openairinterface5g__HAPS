@@ -2218,9 +2218,14 @@ dispatch'ini içeriyor.
   (daha fazla tap'lı) "NLOS/LOS için iki farklı profil" olarak sunuyor ama
   hangisinin hangi senaryo/açıda kullanılacağına dair bir kural vermiyor; bu
   yüzden yağmur/ground-offset/O2I gibi manuel opt-in bırakıldı, otomatik bir
-  seçim kuralı icat edilmedi. Kasıtlı olarak hâlâ dışarıda bırakılanlar: Ka-bant
-  DS tabloları (S-bant test senaryolarımız için gerek yoktu), MIMO (hâlâ 1x1
-  SISO), ve `fd_local=1Hz`
+  seçim kuralı icat edilmedi. **MIMO (2x2): Adım 31'de eklendi** - `channel_desc_t`'nin
+  genel `R_sqrt` uzamsal-korelasyon mekanizması (`random_channel.c`'nin TDL_A-E
+  yolunda zaten var olan yaklaşım) HAPS TDL'ye de uygulandı, yeni
+  `gnb/nrue.haps_mobile_ntn_38811_2x2.conf` çiftiyle gerçek bir rfsim
+  bağlantısıyla doğrulandı (`RRCSetupComplete`, sürdürülen sağlıklı DL/UL
+  trafiği). 2x1/1x2/4x4 gibi diğer MIMO konfigürasyonları hâlâ desteklenmiyor
+  (bilinçli `AssertFatal`). Kasıtlı olarak hâlâ dışarıda bırakılanlar: Ka-bant
+  DS tabloları (S-bant test senaryolarımız için gerek yoktu), ve `fd_local=1Hz`
   (gerçek bir UE hızı parametresinden değil, dokümante edilmiş temsili bir değerden
   türüyor - bu simülatörde hiç UE hızı yok). `HAPS_STATIONARY*` etkilenmedi
   (TDL sadece dinamik-gecikme ailesine eklendi). **Adım 27'de**, `use_38811_pathloss`
@@ -2547,3 +2552,79 @@ olduğu için) tetiklenmedi ama kod yolu LOS/TDL-D ile birebir simetrik (aynı
 **Sonuç**: NTN-TDL-B/D artık projede mevcut, `HAPS_TDL_USE_ALT_PROFILE` ile
 opt-in. Varsayılan davranış (TDL-A/C) değişmedi. Bölüm 4'ün "kasıtlı olarak
 dışarıda bırakılanlar" listesinden NTN-TDL-B/D çıkarıldı.
+
+---
+
+### Adım 31 — MIMO (2x2) desteği: gerçek uygulama + gerçek rfsim testi
+
+Kullanıcı isteği: "sonraki eksikle devam edelim" sorusunda sunulan 3 seçenekten
+(MIMO, Ka-bant DS tabloları, iyonosferik sintilasyon) **MIMO** seçildi; kapsam
+sorusunda da **"Gerçek 2x2 uygulama + test"** (sadece kod değil, yeni bir 2x2
+test config'i + gerçek rfsim doğrulaması) seçildi.
+
+**Mevcut durumun incelenmesi**: `haps_update_tdl_taps()` (Adım 21/30) tek bir
+paylaşılan `ctx->tdl_state[j]` kullanıyordu ve `aarx % nb_tx != aatx` (köşegen
+dışı anten çifti) durumunda `ch[]`'yi sıfırda bırakıyordu - SISO'da (tek çift)
+zararsız ama gerçek 2x2 MIMO için **iki ayrı hata** demekti: (1) köşegen-dışı
+terimler (h01, h10) hiç dolmayacaktı - gerçek bir MIMO kanal matrisinin tam
+dolu olması gerekir, sadece köşegen değil; (2) 2x2'de İKİ köşegen çifti (0,0)
+ve (1,1) olurdu, ikisi de AYNI paylaşılan `tdl_state[j]`'yi güncelleyip
+üzerine yazardı - ikinci çift birincinin sonucunu ezerdi.
+
+**Mimari karar - OAI'nin kendi R_sqrt mekanizmasını yeniden kullanma**:
+`random_channel.c`'nin genel TDL_A-E yolu zaten bir uzamsal korelasyon
+mekanizması içeriyor: her anten çifti için BAĞIMSIZ bir i.i.d. Gauss örneği
+üretilip (`anew[]`), bir korelasyon kare-kök matrisiyle (`R_sqrt`) çarpılarak
+korelasyonlu çıktı (`acorr[]`) elde ediliyor (bkz. `random_channel.c` "apply
+correlation matrix" yorumu, satır ~2032-2049). HAPS TDL'ye de **aynı yaklaşım**
+uygulandı - yeni bir korelasyon matrisi icat/doğrulamak yerine, bu kod
+tabanında **zaten var olan ve başka yerde (EPA kanal modeli) kullanılan**
+`R_sqrt_22_EPA_medium` matrisinin **birebir aynı değerleri** kopyalanıp
+`haps_R_sqrt_22_medium` adıyla `haps_tdl.c`'ye eklendi (3GPP tarzı "medium"
+TX/RX korelasyon profili) - self-contained dosya yapısı korunarak (paylaşılan
+statik dışa aktarım yerine).
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/sim.h`
+```
+~ Değiştirildi: tdl_state[4] -> tdl_state[4][4] (tap x anten-çifti, 2x2 MIMO'nun
+  4 çifti için)
+```
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_tdl.c`
+```
++ Eklendi: haps_R_sqrt_22_medium[16] (random_channel.c'nin R_sqrt_22_EPA_medium'i
+  ile birebir ayni degerler)
+~ Degistirildi: haps_update_tdl_taps() tamamen yeniden yapilandirildi -
+  simdi her tap icin n_pairs (nb_tx*nb_rx) bagimsiz AR(1) sureci uretiyor,
+  n_pairs==4 ise haps_R_sqrt_22_medium ile karistiriyor (n_pairs==1 icin
+  acorr=anew, eski SISO davranisiyla RNG cagri sirasi dahil birebir ayni).
+  AssertFatal(n_pairs==1 || n_pairs==4, ...) - sadece 1x1/2x2 destekleniyor,
+  baska bir MIMO konfigurasyonu sessizce yanlis davranmak yerine hata veriyor.
+```
+
+**[Dosya]** `haps_test/gnb.haps_mobile_ntn_38811_2x2.conf`, `nrue.haps_mobile_ntn_38811_2x2.conf` (**yeni**)
+```
++ gnb.haps_mobile_ntn_38811.conf/nrue karsiligindan kopyalandi (kanitlanmis
+  NTN band254 senaryosu), sadece: RUs.nb_tx/nb_rx = 1 -> 2, ve gNB tarafinda
+  pdsch_AntennaPorts_XP=2/pusch_AntennaPorts=2 eklendi (bu anten portu
+  anahtarlari, bu repodaki TEK BASKA 2x2 rfsim referansindan -
+  ci-scripts/conf_files/gnb.sa.band78.273prb.rfsim.2x2.conf - alindi).
+```
+
+**Derleme**: `ninja rfsimulator nr-softmodem nr-uesoftmodem` - `sim.h` degistigi
+icin genis yeniden derleme (40 hedef), temiz.
+
+**Test**:
+
+| Senaryo | n_pairs (iz) | Sonuc |
+|---|---|---|
+| 1x1 SISO regresyon (`gnb/nrue.haps_mobile_ntn_38811.conf`, degismemis) | 1 | `synchronized`+`RRCSetupComplete` - Adim 21/30'dan beri degismedi |
+| **2x2 MIMO (yeni)** (`gnb/nrue.haps_mobile_ntn_38811_2x2.conf`) | 4 | gNB: "nb_tx_streams 2, nb_rx_streams 2", "Attaching RU 0 antenna 0/1 to gNB antenna 0/1"; UE: `synchronized`+`RRCSetupComplete`; surdurulen saglikli DL/UL trafik (SNR 16-36dB araliginda, birden fazla HARQ turu); temiz SIGTERM kapanisi, assert/crash yok |
+
+**Sonuc**: MIMO (2x2) artik gercek, calisan bir ozellik - salt kod degil,
+gercek bir rfsim baglantisiyla dogrulandi. `channel_desc_t`'nin genel R_sqrt
+mekanizmasiyla tutarli bir yaklasim kullanildi (yeni fizik icat edilmedi,
+mevcut/dogrulanmis bir korelasyon matrisi yeniden kullanildi). 1x1 SISO
+davranisi (kod yolu ve RNG cagri sirasi dahil) degismedi. Diger MIMO
+konfigurasyonlari (2x1, 1x2, 4x4 vb.) hala desteklenmiyor - bilincli olarak
+AssertFatal ile reddediliyor.
