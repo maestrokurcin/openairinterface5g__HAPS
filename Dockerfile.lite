@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: LicenseRef-CSSL-1.0
+#
+# Adim 34: a deliberately lightweight alternative to docker/Dockerfile.gNB.ubuntu/
+# Dockerfile.nrUE.ubuntu - those compile the ENTIRE OAI repo from scratch inside
+# the container (ran-base:2.4GB + ran-build:6.81GB per docker/README.md), which
+# this machine's disk (2.5GB free after cleanup, Adim 29/this step) cannot fit.
+# This Dockerfile instead copies the ALREADY-BUILT, ALREADY-PROVEN
+# cmake_targets/ran_build/build/ output (built and regression-tested bare-metal
+# throughout this whole project) into a minimal runtime image - so this tests
+# docker-compose.yaml's actual object of interest (network/volume/config-mount
+# structure, whether the binaries run correctly inside a container) without
+# needing to also test the official Dockerfiles' from-scratch compile chain,
+# which remains unverified on this machine (see HAPS_GELISTIRME_GUNLUGU.md
+# Adim 23/29/34).
+#
+# Build with a staging directory containing ONLY the runtime-necessary files
+# (2 executables + the dlopen()'d plugin .so's - 169MB total, vs. the full
+# 1.8GB build tree which also has intermediate CMakeFiles/*.dir object files
+# and static libs never needed at runtime) as context, e.g.:
+#   mkdir -p /tmp/haps-oai-runtime && cd cmake_targets/ran_build/build && \
+#     cp nr-softmodem nr-uesoftmodem *.so /tmp/haps-oai-runtime/
+#   docker build -f haps_test/Dockerfile.lite -t haps-oai:lite \
+#     /tmp/haps-oai-runtime
+#
+# Runtime library search: nr-softmodem/nr-uesoftmodem dlopen() their plugins
+# (librfsimulator.so etc.) via a RUNPATH baked in at bare-metal link time
+# pointing at this exact absolute path (verified with readelf -d) - so the
+# runtime files are copied to that SAME absolute path here, rather than
+# somewhere else + LD_LIBRARY_PATH, to reuse the binaries completely as-is.
+
+FROM ubuntu:jammy
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libsctp1 \
+    libssl3 \
+    zlib1g \
+    libconfig9 \
+    libyaml-cpp0.7 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /home/furkan/openairinterface5g/cmake_targets/ran_build/build
+COPY . /home/furkan/openairinterface5g/cmake_targets/ran_build/build/
+WORKDIR /home/furkan/openairinterface5g/cmake_targets

@@ -2147,19 +2147,21 @@ dispatch'ini içeriyor.
   (`ci-scripts/conf_files/gnb.sa.band254.u0.25prb.rfsim.ntn-haps.conf` +
   `nrue.uicc.ntn-haps.conf`) hem hareketli (`haps_test/gnb.haps_mobile_ntn.conf` +
   `nrue.haps_mobile_ntn.conf`) senaryolarda ilk-denemede `RRC_CONNECTED` elde ediliyor.
-- **`docker-compose.yaml`: Adım 23'te düzeltildi, gerçek doğrulama Adım 29'da
-  başlatıldı ama disk alanı yüzünden ertelendi.** Adım 23'te dosya adındaki
+- **`docker-compose.yaml`: Adım 23'te düzeltildi, yapısal eşdeğeri Adım 34'te
+  gerçek `docker compose up` ile doğrulandı.** Adım 23'te dosya adındaki
   literal `*` karakteri, Adım 2'nin bulduğu 2 hata, ve 4 hata daha (bkz. Adım 23
-  tablosu) bare-metal kanıtlanmış komutlarla karşılaştırılarak düzeltildi ama o
-  zaman Docker kurulu olmadığı için çalıştırılarak doğrulanamamıştı. Adım 29'da
-  Docker Engine + Compose plugin (v29.7.2/v5.5.0) bu makineye kuruldu
-  (`docker ps` çalışıyor, `sudo` ile) - ama gerçek `docker compose up` denemesi
-  hâlâ yapılmadı: kök disk 24GB'ın 21GB'ı dolu, sadece 1.8GB boş - `docker/
-  Dockerfile.gNB.ubuntu`/`Dockerfile.nrUE.ubuntu`'nun `ran-base`→`ran-build`
-  (tüm repoyu sıfırdan derliyor) → `oai-gnb`/`oai-nr-ue` zincirinin ihtiyaç
-  duyacağı birkaç GB'lık yer yok - disk dolma riskiyle bilinçli olarak
-  ertelendi. Kullanıcı disk alanı açılana kadar bu adımı sonraya bırakmayı
-  seçti.
+  tablosu) bare-metal kanıtlanmış komutlarla karşılaştırılarak düzeltildi. Resmi
+  `Dockerfile.gNB.ubuntu`/`Dockerfile.nrUE.ubuntu`'nun `ran-base`→`ran-build`
+  zinciri (~9.2GB, `docker/README.md`'nin kendi rakamları) bu makinenin disk
+  alanına (temizlik sonrası 2.5GB) hâlâ sığmıyor ve hâlâ hiç çalıştırılmadı.
+  Ama **Adım 34'te**, aynı `docker-compose.yaml` yapısını (ağ/mount/komut
+  deseni) kullanan, sadece zaten bare-metal kanıtlanmış
+  `cmake_targets/ran_build/build` çalışma-zamanı dosyalarını (169MB, tüm build
+  ağacı değil) kopyalayan hafif bir özel imaç (`Dockerfile.lite`) ile
+  gerçek bir `docker compose up` yapıldı - `RRCSetupComplete` ve Frame.Slot
+  512'ye kadar sürdürülen sağlıklı trafik (SNR 16-21dB, 0 hata) elde edildi.
+  `oai-amf` hâlâ hiç test edilmedi (bu projenin hiçbir testi hiç AMF
+  kullanmadı).
 - **Yol kaybı: `HAPS_STATIONARY`/`HAPS_MOBILE` (orijinal) - Adım 27'de
   tamamlandı.** Artık bunlar da keyfi `ploss_dB=20` yerine gerçek, dinamik
   TR 38.811 yol kaybını kullanıyor (bkz. Adım 27) - `_38811` eki artık sadece
@@ -2752,3 +2754,92 @@ türetiliyor - eskiden olduğu gibi frekanstan bağımsız sabit bir sayı deği
 Bu, projenin kanıtlanmış senaryolarının varsayılan davranışını **bilinçli
 olarak** değiştiriyor (bazen ara sıra bağlantı kesilmesi) - kullanıcı bunu
 gerçekçi fizik olarak kabul etti.
+
+---
+
+### Adım 34 — `docker-compose.yaml`'ın gerçek doğrulaması: hafif özel imaj yaklaşımı
+
+Kullanıcı isteği: Adım 29'da disk alanı yüzünden ertelenen Docker doğrulamasını
+gerçekten yapmak için önce disk alanı açmak, sonra denemek.
+
+**Disk temizliği**: Kullanıcı 6 eski/devre-dışı snap revizyonunu
+(core22/firefox/gnome-42-2204/snap-store/snapd/snapd-desktop-integration) ve
+apt cache'ini kendi `!` oturumunda tek tek kaldırdı - **1.8GB → 2.5GB** boş
+alan (kernel'e dokunulmadı, kullanıcı sadece güvenli seçeneği tercih etti).
+
+**İlk bulgu - resmi zincir kesin olarak sığmıyor**: `docker/README.md`'nin
+kendi belgelenmiş rakamları kontrol edildi: `ran-base:latest` **2.4GB**,
+`ran-build:latest` **6.81GB** - toplam ~9.2GB, elimizdeki 2.5GB'ın çok üstünde.
+Bu bir tahmin değil, resmi belgeden doğrudan bir rakamdı - bu yüzden "dene,
+dolarsa durdur" yaklaşımı yerine kullanıcıya doğrudan bu açık sunuldu.
+
+**Karar - hafif özel imaj**: Kullanıcı, `ran-base`/`ran-build` zincirini
+(tüm repoyu sıfırdan derliyor) atlayıp, bu proje boyunca zaten defalarca
+bare-metal kanıtlanmış `cmake_targets/ran_build/build` çıktısını doğrudan
+kopyalayan küçük bir özel imaj yapmayı seçti - resmi `Dockerfile.gNB.ubuntu`/
+`Dockerfile.nrUE.ubuntu`'yu test etmiş olmayacaktık ama `docker-compose.yaml`'ın
+asıl ilgi konusunu (ağ/mount/config yapısı, binary'lerin bir konteyner içinde
+çalışıp çalışmadığı) gerçekten test edecektik.
+
+**İlk deneme başarısız - disk yine doldu**: `COPY . /path` ile TÜM
+`ran_build/build` dizini (1.8GB) kopyalanmaya çalışıldı - build context transferi
+(118s, 1.80GB) başarılı oldu ama **"exporting to image"** aşamasında
+`"no space left on device"` ile başarısız oldu (context+export'un aynı anda
+disk üzerinde geçici olarak iki katına çıkması). Disk **2.5GB → 620MB'a** düştü
+(başarısız build'in artık kalıntıları yüzünden). `sudo docker system df` ile
+teşhis edildi (2.005GB "Build Cache", tamamı reclaimable), `sudo docker builder
+prune -af` ile temizlenip disk **2.5GB'a geri döndü**.
+
+**Kök neden ve düzeltme - sadece çalışma zamanı dosyaları**: `ran_build/build`
+dizininin 1.8GB'ının büyük kısmı çalışma zamanında hiç gerekmeyen ara ürünler
+(`CMakeFiles/*.dir` nesne dosyaları, statik kütüphaneler). Sadece gerçekten
+gereken dosyalar (`nr-softmodem`, `nr-uesoftmodem`, dlopen edilen `.so`
+eklentileri) ölçüldü: **sadece 169MB**. Bunlar `/tmp/haps-oai-runtime`'a
+kopyalanıp yeni bir build context olarak kullanıldı.
+
+**[Dosya]** `haps_test/Dockerfile.lite` (**yeni**)
+```
++ FROM ubuntu:jammy (derleme host'uyla ayni surum)
++ apt: libsctp1, libssl3, zlib1g, libconfig9, libyaml-cpp0.7 (ldd ile
+  bulundu, host'ta zaten kurulu oldugu icin ilk denemede eksik oldugu fark
+  edilmedi - konteynerde "libconfig.so.9: cannot open shared object file"
+  hatasiyla yakalanip duzeltildi)
++ Calisma zamani dosyalari /home/furkan/openairinterface5g/cmake_targets/
+  ran_build/build/'ye kopyalaniyor - nr-softmodem/nr-uesoftmodem'in
+  bare-metal derlemede gomulen RUNPATH'i (readelf -d ile dogrulandi) tam bu
+  mutlak yolu gosteriyor, boylece binary'ler hic degistirilmeden calisiyor.
+```
+
+**[Dosya]** `haps_test/docker-compose.lite.yml` (**yeni**)
+```
++ `docker-compose.yaml`'a paralel ama haps-oai:lite imajini kullanan,
+  gnb.haps.conf/nrue.haps.conf'u mount eden (bu projenin ilk kanitlanmis
+  senaryosu, HAPS_STATIONARY), oai-amf'i kasitli olarak icermeyen (bu proje
+  boyunca hic test/insa edilmedi, docker-compose.yaml'in kendi notu; ne
+  gnb ne ue servisi ona depends_on degil; bu projenin butun bare-metal
+  testleri de AMF calismadan RRCSetupComplete'e ulasti) bir compose dosyasi.
+```
+
+**Test - gerçek `docker compose up`**:
+
+| Adım | Sonuç |
+|---|---|
+| İlk çalıştırma (libconfig9/libyaml-cpp0.7 eksik) | `dlopen(libparams_libconfig.so): libconfig.so.9: cannot open shared object file` - konteyner crash |
+| Paketler eklenip yeniden derlendikten sonra | `docker compose up -d` - 2/2 konteyner başladı |
+| UE logu | `UE synchronized!`, `RRCSetupComplete` |
+| gNB logu (uzun süre sonra) | Frame.Slot 512.0'a kadar sürdürülen sağlıklı trafik: SNR 16.4-21.2dB, `dlsch_errors 0`, `ulsch_errors 0`, `in-sync` |
+
+**Kapsam/dürüst not**: Bu, `docker-compose.yaml`'ın **kendisini** değil, onun
+yapısal eşdeğerini (aynı ağ/mount/komut deseni, farklı bir imaj kaynağıyla)
+doğruladı - resmi `Dockerfile.gNB.ubuntu`/`Dockerfile.nrUE.ubuntu`'nun
+`ran-base`/`ran-build` zinciri hâlâ hiç çalıştırılmadı (hâlâ ~9.2GB gerektiriyor,
+bu makinede hâlâ yok) ve `oai-amf` hâlâ hiç test edilmedi. Ama asıl soru olan
+"konteynerize edilmiş OAI HAPS rfsim, gerçek bir Docker ağı/mount yapısı
+içinde doğru çalışıyor mu" sorusu artık **evet** ile cevaplandı - bare-metal
+ile tamamen tutarlı sonuçlarla.
+
+**Sonuç**: `docker-compose.yaml`'ın asıl endişe konusu (containerization'ın
+kendisi, resmi imaj derleme zinciri değil) artık gerçek bir `docker compose up`
+ile doğrulandı. Disk temizliği kalıcı (snap/apt), yeni dosyalar (`Dockerfile.lite`,
+`docker-compose.lite.yml`) kalıcı - ama `/tmp/haps-oai-runtime` geçici bir
+staging dizini, kalıcı değil.

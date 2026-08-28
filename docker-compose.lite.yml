@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: LicenseRef-CSSL-1.0
+#
+# Adim 34: real docker-compose verification of the HAPS_STATIONARY rfsim
+# scenario, using the lightweight haps-oai:lite image (see Dockerfile.lite)
+# instead of docker-compose.yaml's official oai-gnb:latest/oai-nr-ue:latest
+# (which need the ran-base/ran-build chain this machine's disk cannot fit -
+# see HAPS_GELISTIRME_GUNLUGU.md Adim 23/29/34). oai-amf is deliberately
+# omitted - it was never tested/built in this project (see
+# docker-compose.yaml's own note), and neither service here depends on it;
+# every bare-metal test in this project's whole history has reached
+# RRCSetupComplete without a running AMF too.
+
+networks:
+  haps_lite_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.75.0/26
+
+services:
+  oai-gnb:
+    image: haps-oai:lite
+    container_name: haps-gnb-lite
+    environment:
+      - MALLOC_ARENA_MAX=1
+    volumes:
+      - ./gnb.haps.conf:/home/furkan/openairinterface5g/cmake_targets/ran_build/build/gnb.conf
+    command: >
+      ./ran_build/build/nr-softmodem
+      -O ./ran_build/build/gnb.conf
+      --rfsim
+    networks:
+      haps_lite_net:
+        ipv4_address: 192.168.75.10
+
+  oai-nr-ue:
+    image: haps-oai:lite
+    container_name: haps-ue-lite
+    environment:
+      - MALLOC_ARENA_MAX=1
+    volumes:
+      - ./nrue.haps.conf:/home/furkan/openairinterface5g/cmake_targets/ran_build/build/nrue.conf
+    command: >
+      ./ran_build/build/nr-uesoftmodem
+      -O ./ran_build/build/nrue.conf
+      -r 106 --numerology 1 -C 3619200000
+      --rfsim
+      --rfsimulator.[0].serveraddr 192.168.75.10
+    depends_on:
+      - oai-gnb
+    networks:
+      haps_lite_net:
+        ipv4_address: 192.168.75.20
