@@ -2178,8 +2178,9 @@ dispatch'ini içeriyor.
   kuralına göre ("only considered above 6GHz") S-bantta hep 0, sadece dar bir
   Ka-bant yer tutucusu (tek şehir/tek frekans referans tablosu) olarak eklendi;
   iyonosferik terim (konum/enlem parametresi olmadığı ve orta enlemde zaten ~0
-  olduğu için) hiç eklenmedi. Hâlâ eklenmeyen: O2I bina girişi kaybı (PL_e, §6.6.3)
-  - açık-alan senaryomuzda uygulanmadığı için kasıtlı olarak dışarıda.
+  olduğu için) hiç eklenmedi. **O2I bina girişi kaybı (PL_e, §6.6.3): Adım 28'de
+  eklendi** - ITU-R P.2109'un tam iki-lognormal-karışımlı modeli, `HAPS_O2I_ENABLE`
+  ile opt-in (varsayılan: 0 dB, açık-alan senaryoları hiç etkilenmedi).
 - **Gürültü tabanı: `HAPS_STATIONARY`/`HAPS_MOBILE` (orijinal) - Adım 27'de
   tamamlandı.** Artık bunlar da keyfi `noise_power_dB=-110` yerine kTB+NF termal
   gürültü formülünden (gerçek config bant genişliğine göre, kalibre edilmiş)
@@ -2348,3 +2349,87 @@ kentsel) seçildiğini belirtiyor, gerçek-fizik/keyfi-sabit-değer ayrımını 
 Küçük-ölçekli (TDL) sönümleme bilinçli olarak `_38811` ailesine özel kaldı. Yan
 ürün olarak `HAPS_STATIONARY_38811*`'in daha önce hiç çalışmayan yol kaybı
 hesaplaması da düzeltildi.
+
+---
+
+### Adım 28 — O2I (bina girişi) kaybı: TR 38.811 S6.6.3 / ITU-R P.2109
+
+Kullanıcı isteği: kalan tek bilinçli-kapsam-dışı madde olan O2I bina girişi kaybını
+(PL_e) da ekle - önceki oturumlarda "açık-alan senaryomuzda uygulanmadığı için
+kasıtlı olarak dışarıda" bırakılmıştı (Adım 14/17/22'nin notu), Adım 27'nin
+"keyfi ploss_dB" kararını geri almasıyla aynı mantıkla bu da geri alındı.
+
+**Araştırma**: TR 38.811 V15.1.0'ın (`hscc.csie.ncu.edu.tw/38811.pdf`, gerçek 3GPP
+belgesi - `pdftotext -layout` ile metne çevrilip §6.6.3 bulundu) kendisi ayrı bir
+model tanımlamıyor, doğrudan **Recommendation ITU-R P.2109**'a (bina girişi kaybı)
+yönlendiriyor. Model: iki lognormal dağılımın birleşimi -
+
+```
+L_BEL(P) = 10*log10(10^(0.1*A(P)) + 10^(0.1*B(P)) + 10^(0.1*C))
+A(P) = F^-1(P)*sigma1 + mu1,  B(P) = F^-1(P)*sigma2 + mu2
+mu1 = Lh + Le,  Lh = r + s*log10(f) + t*log10(f)^2,  Le = 0.212*|elevation_deg|
+sigma1 = u + v*log10(f),  mu2 = w + x*log10(f),  sigma2 = y + z*log10(f)
+```
+
+Tablo 6.6.3-1 katsayıları (`r,s,t,u,v,w,x,y,z`), "traditional" ve "thermally
+efficient" bina sınıfı için ayrı ayrı.
+
+**Bulunan bir tutarsızlık - PDF metnine değil referans koda güvenildi**:
+`pdftotext` çıktısı `μ1 = Lh - Le` ve `C = 3.0` (pozitif) gösteriyordu, ama ITU-R'ın
+kendi resmi Java referans implementasyonu (`github.com/eeveetza/javaP2109`,
+`P2109.java`) `mu1 = Lh + Le` ve `C = -3` kullanıyor - eşleşmiyor. Bu tür minüs
+işareti kayıpları eski PDF'lerin metne çevrilmesinde bilinen bir sorun. Test edilmiş,
+yayınlanmış referans koda güvenildi (PDF metin çıkarımına değil) - katsayı
+tablosunun kendisi (r,s,t,...) her iki kaynakta da birebir aynıydı, sadece işaret
+kuralı farklıydı. `Qi()` (ters tamamlayıcı kümülatif normal dağılım, Ek 5 §16
+rasyonel yaklaşıklığı, Abramowitz-Stegun tarzı) da aynı referans koddan birebir
+port edildi.
+
+**El ile doğrulama**: `Qi(0.5)` (medyan) elle hesaplandı - `T(0.5)=1.177410`,
+rasyonel yaklaşıklık `C(0.5)=1.177378`, fark `≈0.000032≈0` - beklenen (medyan
+persentilde ters-normal fonksiyonun 0 olması gerekir), port'un doğru olduğunu
+teyit etti.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_o2i.c` (**yeni**)
+```
++ double haps_o2i_entry_loss_dB(double freq_GHz, double elevation_deg):
+  HAPS_O2I_ENABLE ortam değişkeni set değilse 0.0 döner (varsayılan davranış
+  değişmez - açık-alan senaryolarının hepsi). Set ise: HAPS_O2I_THERMAL ile
+  "thermally efficient"/"traditional" bina sınıfı seçilir, uniformrandom()'dan
+  her çağrıda yeni bir persentil (P) çekilip (gölge sönümleme gibi - Adım 15/17)
+  L_BEL(P) hesaplanır. HAPS_DEBUG_O2I ile ayrıntılı iz sürülebilir.
+```
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/sim.h`
+```
++ Eklendi: haps_o2i_entry_loss_dB() bildirimi
+```
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_propagation.c`
+```
+~ Değiştirildi: PLb_dB toplamına o2i_atten_dB eklendi (PLe terimi, S6.6-1'in
+  PL = PLb+PLg+PLs+PLe ayrışmasını artık tam kapsıyor); HAPS_DEBUG_38811 iz
+  satırına o2i alanı eklendi.
+```
+
+**[Dosya]** `CMakeLists.txt`
+```
++ Eklendi: haps_o2i.c (SIMUSRC)
+```
+
+**Derleme**: `ninja rfsimulator nr-softmodem nr-uesoftmodem` - temiz.
+
+**Test**:
+
+| Senaryo | HAPS_O2I_ENABLE | o2i (log) | Sonuç |
+|---|---|---|---|
+| `HAPS_STATIONARY`, varsayılan | yok | 0.000dB | PLb≈128dB, `RRCSetupComplete: 1` - önceki davranışla aynı |
+| `HAPS_STATIONARY`, O2I açık | =1 | 35.76/38.89dB (2 çekiliş) | PLb≈166-169dB (~+38dB); bu koşuda **yine de** `RRCSetupComplete: 1` - rastgele çekilen değer bağlantı marjini içinde kaldı (kesin başarısızlık garantisi yok, olasılıksal) |
+| `HAPS_MOBILE`, O2I açık | =1 | 18.5dB → 25.6dB (dinamik, saniyede yeniden çekiliyor) | Çökme yok, sürekli yeniden çekilme kararlı |
+
+**Sonuç**: O2I bina girişi kaybı artık projede mevcut - ITU-R P.2109'un tam,
+iki-lognormal-karışımlı modeli, gerçek katsayı tablosuyla. Bilinçli olarak
+env-var-only/opt-in bırakıldı (yağmur/ground-offset gibi) - kalıcı bir config
+alanı açılmadı, çünkü projenin kanıtlanmış senaryolarının hepsi açık-alan UE'ler
+ve PL_e tanım gereği 0'dır bunlarda. Devre dışıyken (varsayılan) hiçbir davranış
+değişikliği yok - regresyon testleriyle doğrulandı.
