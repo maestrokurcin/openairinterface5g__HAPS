@@ -2153,8 +2153,13 @@ dispatch'ini içeriyor.
   komutlarla karşılaştırılarak düzeltildi. Gerçek bir `docker compose up` denemesi
   hâlâ yapılmadı - bu makinede Docker kurulu değil, referans verilen imajlar
   (`oai-amf`/`oai-gnb`/`oai-nr-ue`) yerel olarak mevcut değil.
-- **Yol kaybı: `HAPS_STATIONARY`/`HAPS_MOBILE` (orijinal) hâlâ keyfi bir değerde
-  (`ploss_dB=20`) — bilinçli olarak değiştirilmedi.** Adım 14'te literatür taraması
+- **Yol kaybı: `HAPS_STATIONARY`/`HAPS_MOBILE` (orijinal) - Adım 27'de
+  tamamlandı.** Artık bunlar da keyfi `ploss_dB=20` yerine gerçek, dinamik
+  TR 38.811 yol kaybını kullanıyor (bkz. Adım 27) - `_38811` eki artık sadece
+  mekan senaryosu seçimini belirtiyor. Adım 27'de ayrıca `HAPS_STATIONARY_38811*`
+  ailesinin yol kaybının daha önce hiç dinamik olarak hesaplanmadığı (gizli bir
+  hata) da bulunup düzeltildi. Aşağıdaki tarihçe (Adım 14-22), o zamana kadarki
+  aşamalı genişletmeyi kaydediyor. Adım 14'te literatür taraması
   (3GPP TR 38.811 + ITU-R F.1569/F.1570), Adım 15'te **büyük kapsam** seçildi ve
   gerçekten uygulandı: `HAPS_STATIONARY_38811`/`HAPS_MOBILE_38811` adında **ayrı,
   opt-in** yeni model tipleri, TR 38.811 §6.6.2'nin gerçek FSPL+shadow fading modelini
@@ -2175,12 +2180,12 @@ dispatch'ini içeriyor.
   iyonosferik terim (konum/enlem parametresi olmadığı ve orta enlemde zaten ~0
   olduğu için) hiç eklenmedi. Hâlâ eklenmeyen: O2I bina girişi kaybı (PL_e, §6.6.3)
   - açık-alan senaryomuzda uygulanmadığı için kasıtlı olarak dışarıda.
-- **Gürültü tabanı: `HAPS_STATIONARY`/`HAPS_MOBILE` (orijinal) hâlâ keyfi
-  (`noise_power_dB=-110`) — bilinçli olarak değiştirilmedi.** `_38811` varyantlarında
-  Adım 16'da kTB+NF termal gürültü formülünden (gerçek config bant genişliğine göre,
-  kalibre edilmiş) hesaplanıyor artık — path loss'un aksine statik (elevation'a bağlı
-  değil) ama bant genişliği değişirse doğru ölçekleniyor. Kentsel/Ka-bant tabloları
-  gibi bunun da NF=3dB varsayımı 3GPP'den değil, projenin kendi kalibrasyonu.
+- **Gürültü tabanı: `HAPS_STATIONARY`/`HAPS_MOBILE` (orijinal) - Adım 27'de
+  tamamlandı.** Artık bunlar da keyfi `noise_power_dB=-110` yerine kTB+NF termal
+  gürültü formülünden (gerçek config bant genişliğine göre, kalibre edilmiş)
+  hesaplıyor — path loss'un aksine statik (elevation'a bağlı değil) ama bant
+  genişliği değişirse doğru ölçekleniyor. Kentsel/Ka-bant tabloları gibi bunun da
+  NF=3dB varsayımı 3GPP'den değil, projenin kendi kalibrasyonu.
 - **Gerçekçi düşük yükseklik açısı testi: Adım 19'da çözüldü.** Geometri artık
   `HAPS_GROUND_OFFSET_M` env değişkeniyle herhangi bir `_38811` senaryosunda 90°'den
   ~11°'ye kadar test edilebiliyor; varsayılan (0) davranış değişmedi. Kalıcı bir
@@ -2203,7 +2208,10 @@ dispatch'ini içeriyor.
   senaryolarımız için gerek yoktu), MIMO (hâlâ 1x1 SISO), ve `fd_local=1Hz`
   (gerçek bir UE hızı parametresinden değil, dokümante edilmiş temsili bir değerden
   türüyor - bu simülatörde hiç UE hızı yok). `HAPS_STATIONARY*` etkilenmedi
-  (TDL sadece dinamik-gecikme ailesine eklendi).
+  (TDL sadece dinamik-gecikme ailesine eklendi). **Adım 27'de**, `use_38811_pathloss`
+  düz `HAPS_MOBILE`'a da açılınca TDL'nin ona da istemeden bulaştığı (ve bir
+  regresyon testinde bağlantıyı durdurduğu) görüldü - `enable_small_scale_fading`
+  adıyla ayrı bir bayrağa taşınıp yeniden sadece `_38811` ailesine sınırlandı.
 - **Partnerle mimari uyum: Adım 26'da tamamlandı.** Proje artık partnerin
   şemasındaki dosya-başına-modül mimarisine tam uyumlu -
   `haps_config`/`haps_geometry`/`haps_propagation`/`haps_gas`/`haps_rain`/
@@ -2212,3 +2220,131 @@ dispatch'ini içeriyor.
   struct'ı sadece tek bir `haps_ctx` işaretçisi kazandı (HAPS-dışı modeller için
   NULL) - SCM_A/EPA/TDL/AWGN/SAT_LEO_TRANS/REGEN hiç etkilenmedi (LEO'nun kendi kodu
   hiç değişmeden, satır satır aynı kaldı). 8/8 regresyon testi sıfır hatayla geçti.
+
+---
+
+### Adım 27 — Orijinal (`_38811` olmayan) `HAPS_STATIONARY`/`HAPS_MOBILE` modelleri de gerçek TR 38.811 fiziğine geçirildi
+
+Kullanıcı isteği: kalan iki bilinçli-kapsam-dışı bırakılmış eksikten birini seç
+(diğeri O2I bina girişi kaybı, açık-alan senaryosu için kasıtlı olarak dışarıda
+bırakıldı) - kullanıcı **"Orijinal (`_38811` olmayan) modellerin keyfi
+`ploss_dB`/`noise`"** seçeneğini seçti: düz `HAPS_STATIONARY`/`HAPS_MOBILE`
+(band78/NTN'siz test config'leri `gnb.haps.conf`/`gnb.haps_mobile.conf`) hâlâ
+`.conf` dosyasındaki sabit `ploss_dB=20`/`noise_power_dB=-110` değerlerini
+kullanıyordu - Adım 15/16'da bilinçli olarak geriye-dönük-uyumluluk için
+değiştirilmemişti. Artık kullanıcı bu ayrımı kaldırmayı istedi.
+
+**Analiz - basit bir bayrak çevirmeden fazlası gerekti**: `haps_config_new()`'deki
+`use_38811_pathloss` koşulunu `HAPS_STATIONARY`/`HAPS_MOBILE`'ı da kapsayacak
+şekilde genişletmeden önce, bu bayrağın gerçekte nasıl kullanıldığı yeniden
+incelendi ve **iki ayrı, önceden fark edilmemiş sorun** bulundu:
+
+1. **`HAPS_STATIONARY*` ailesinin (hem düz hem `_38811` varyantları!) yol kaybı
+   hiçbir zaman TR 38.811'den hesaplanmıyordu.** `haps_38811_path_loss_dB()`
+   sadece `haps_channel_process()` içinden çağrılıyor, o da sadece
+   `enable_dynamic_delay || enable_dynamic_Doppler` true ise çalışıyor
+   (`apply_channelmod.c`). `HAPS_STATIONARY*`'de platform sabit olduğu için
+   (Adım 7'nin RA/Msg3 kararsızlığı nedeniyle) her iki bayrak da `false` -
+   yani `haps_channel_process()` bu ailede **asla** çalışmıyor.
+   `fill_channel_desc()` `path_loss_dB`'yi her zaman config'teki statik değere
+   sabitliyor (109. satır) ve hiçbir şey onu güncellemiyor. Bu, Adım 15'ten beri
+   `HAPS_STATIONARY_38811`'in de gerçekte hâlâ statik `ploss_dB` kullandığı
+   anlamına geliyordu - gürültü tabanı (bir kez, kanal oluşturulurken hesaplanan
+   `noise_power_dB`, bu gating'e tabi değil) doğruydu ama yol kaybı hiç değildi.
+   **Düzeltme**: `HAPS_STATIONARY` case bloğunda, `fill_channel_desc()`
+   çağrısından **sonra** (o fonksiyon `path_loss_dB`'yi ezdiği için sırası önemli),
+   `haps_38811_path_loss_dB(chan_desc, chan_desc->sat_height)` **bir kez**
+   çağrılıp `path_loss_dB` üzerine yazılıyor - platform tam başımızın üstünde ve
+   hiç hareket etmediği için (`loiter_radius=0`) geometri zamanla değişmiyor,
+   yani tek seferlik hesap yeterli (gürültü tabanının hemen üstünde zaten
+   yapıldığı gibi).
+2. **Bu tek-seferlik çağrı `gaussZiggurat()`'ı (gölge sönümleme için) RNG
+   tohumlanmadan önce çağırıyordu** - `"gaussZiggurat(): RNG not initialized,
+   run randominit() first"` ile gNB anında çöktü (test sırasında yakalandı).
+   `randominit()` normalde çok daha sonra, `simulator.cpp:1644`'te (telnet
+   sunucusu kurulurken) çağrılıyor - kanal ise config dosyası işlenirken çok
+   daha erken oluşturuluyor. **Düzeltme**: `haps_38811_path_loss_dB()`
+   çağrısından hemen önce `randominit()` de çağrılıyor - zararsız (tohum
+   urandom'dan/`OAI_RNGSEED`'den tekrar okunur, `simulator.cpp`'nin kendi
+   sonraki çağrısını bozmaz, `randominit()`'in kendisinde "zaten çağrıldı" koruması
+   yok).
+
+**Bayrağı genişletirken bulunan üçüncü bir sorun - test sırasında yakalandı**:
+`use_38811_pathloss`'ı düz `HAPS_MOBILE`'a da açmak, `random_channel.c`'nin
+`channel_length = ...use_38811_pathloss ? HAPS_TDL_CHANNEL_LENGTH : 2` satırı
+yüzünden **istemeden** NTN-TDL küçük-ölçekli (Rayleigh/Ricean) sönümlemeyi de
+devreye sokuyordu (Adım 21) - bu, sadece yol kaybı/gürültü tabanı sayısını
+değiştirmekten çok daha büyük bir davranış değişikliği. 55s'lik bir regresyon
+testinde bu, bağlantının ~10.5s'de "Detected UL Failure on PUSCH after 10 PUSCH
+DTX, stopping scheduling" ile tamamen durmasına yol açtı (muhtemelen derin bir
+NLOS/Rayleigh sönümü çekimi) - önceki, tamamen sabit `ploss_dB=20` senaryosunda
+hiç görülmeyen bir arıza. Kullanıcının isteği özellikle "keyfi `ploss_dB`/gürültü"
+içindi, küçük-ölçekli sönümleme değil - bu yüzden **ikisi ayrıştırıldı**:
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/sim.h`
+```
+~ Değiştirildi (haps_channel_ctx_t):
+  use_38811_pathloss artık TÜM HAPS_* varyantları için true (yol kaybı +
+  gürültü tabanı fiziği)
++ Eklendi: bool enable_small_scale_fading - sadece _38811-ekli varyantlar için
+  true (NTN-TDL küçük-ölçekli sönümleme, bilinçli olarak ayrı bayrak)
+```
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_config.c`
+```
+~ Değiştirildi:
+- ctx->use_38811_pathloss = (sadece _38811 enum'ları için true);
++ ctx->use_38811_pathloss = true; // artık hepsi için
++ ctx->enable_small_scale_fading = (sadece _38811 enum'ları için true); // eskisiyle aynı kosul, yeni alana tasindi
+```
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/random_channel.c`
+```
+~ Değiştirildi (HAPS_STATIONARY case bloğu):
++ fill_channel_desc() cagrisindan sonra: randominit(); chan_desc->path_loss_dB =
+  haps_38811_path_loss_dB(chan_desc, chan_desc->sat_height); (use_38811_pathloss
+  ise) - yeni kesfedilen "hic calismiyordu" hatasinin duzeltmesi
+~ Değiştirildi (HAPS_MOBILE case bloğu):
+- channel_length = ...use_38811_pathloss ? HAPS_TDL_CHANNEL_LENGTH : 2;
++ channel_length = ...enable_small_scale_fading ? HAPS_TDL_CHANNEL_LENGTH : 2;
+  (TDL'yi sadece _38811 ailesine geri sınırladı)
+```
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_tdl.c`
+```
+~ Değiştirildi (haps_update_tdl_taps):
+- if (!ctx->use_38811_pathloss) return;
++ if (!ctx->enable_small_scale_fading) return;
+```
+
+**Derleme**: `ninja rfsimulator nr-softmodem nr-uesoftmodem` - `sim.h` değiştiği
+için geniş bir yeniden derleme tetikledi (39 hedef) ama temiz, hata yok.
+
+**Test - regresyon** (önce RNG çökmesiyle karşılaşıldı ve düzeltildi, sonra
+TDL-kaynaklı durmayla karşılaşıldı ve düzeltildi, son haliyle):
+
+| Senaryo | RA failed | RRCSetupComplete | Yeni yol kaybı/gürültü | Not |
+|---|---|---|---|---|
+| `HAPS_STATIONARY` (band78, NTN'siz) | 0 | 1 | ploss≈16.4dB (eskiden sabit 20dB), gürültü -100.5dB (eskiden -110dB) | SNR 18-22dB, 40s boyunca sağlıklı UL/DL |
+| `HAPS_MOBILE` (band78, NTN'siz), 1. deneme (TDL ayrıştırmadan önce) | 0 | 1 | - | ~10.5s'de UL durdu (TDL'nin istemeden aktifleşmesi) |
+| `HAPS_MOBILE` (band78, NTN'siz), TDL ayrıştırıldıktan sonra, 2 tekrar | 0 | 1 (her ikisinde) | ploss≈16.4-16.5dB, gürültü -100.5dB | 2/2 temiz 55s/45s koşu, sadece test-sonu "Lost socket"/"UL Failure" (normal kapanış) |
+| `HAPS_MOBILE_38811` (NTN, band254) - shared-code sağlaması | 0 | 1 (2 log satırı) | ploss 22.5-24dB (dalgalanıyor, beklenen) | TDL/gerçek fizik hâlâ çalışıyor, regresyon yok |
+
+**Fark edilen ama kovalanmayan pre-existing kozmetik anomali**: UE tarafında bu
+debug satırı `noise floor: -inf dB (bandwidth 0.000000 Hz)` olarak basılıyor
+(config işlenirken `channel_bandwidth` henüz 0 - RF parametreleri henüz
+çözülmemiş). Adım 16'da bu satırın UE tarafında hiç basılmadığı not edilmişti
+(kozmetik bir log-flush sorunu sanılmıştı); şimdi göründüğü için `bandwidth=0`
+olduğu netleşti. Bu, benim değişikliklerimden önce de **aynı kod yolu**
+üzerinden `_38811` varyantlarında zaten oluyordu (sadece düz modellerde bu
+printf hiç tetiklenmediği için görünmüyordu) - yeni bir regresyon değil, sadece
+şimdi daha görünür. Fonksiyonel bir etkisi yok (tüm testler sağlıklı bağlandı) -
+daha derinlemesine kovalanmadı.
+
+**Sonuç**: `HAPS_STATIONARY`/`HAPS_MOBILE` (düz, `_38811` değil) artık gerçek
+TR 38.811 yol kaybı + kTB+NF gürültü tabanı fiziğini kullanıyor - "_38811" eki
+artık sadece hangi mekan senaryosunun (kırsal/banliyö vs kentsel vs yoğun
+kentsel) seçildiğini belirtiyor, gerçek-fizik/keyfi-sabit-değer ayrımını değil.
+Küçük-ölçekli (TDL) sönümleme bilinçli olarak `_38811` ailesine özel kaldı. Yan
+ürün olarak `HAPS_STATIONARY_38811*`'in daha önce hiç çalışmayan yol kaybı
+hesaplaması da düzeltildi.
