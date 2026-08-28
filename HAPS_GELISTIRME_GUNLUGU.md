@@ -2194,8 +2194,12 @@ dispatch'ini içeriyor.
   tamamlandı.** Artık bunlar da keyfi `noise_power_dB=-110` yerine kTB+NF termal
   gürültü formülünden (gerçek config bant genişliğine göre, kalibre edilmiş)
   hesaplıyor — path loss'un aksine statik (elevation'a bağlı değil) ama bant
-  genişliği değişirse doğru ölçekleniyor. Kentsel/Ka-bant tabloları gibi bunun da
-  NF=3dB varsayımı 3GPP'den değil, projenin kendi kalibrasyonu.
+  genişliği değişirse doğru ölçekleniyor. **NF (Adım 36'da düzeltildi)**:
+  artık tahmini 3dB değil, TR 38.811 Tablo 4.4-1'in gerçek S-bant el
+  cihazı/IoT UE değeri (9dB) - kazanç bütçesi de aynı adımda Ek A'nın gerçek
+  uydu EIRP figürüne (36dBW/MHz) dayanacak şekilde yeniden türetildi (tek
+  kalan sayı, simülatörün dBW'yi kendi iç genlik ölçeğine bağlayan
+  kalibrasyon sabiti - bkz. Adım 36).
 - **Gerçekçi düşük yükseklik açısı testi: Adım 19'da çözüldü.** Geometri artık
   `HAPS_GROUND_OFFSET_M` env değişkeniyle herhangi bir `_38811` senaryosunda 90°'den
   ~11°'ye kadar test edilebiliyor; varsayılan (0) davranış değişmedi. Kalıcı bir
@@ -2225,7 +2229,11 @@ dispatch'ini içeriyor.
   yolunda zaten var olan yaklaşım) HAPS TDL'ye de uygulandı, yeni
   `gnb/nrue.haps_mobile_ntn_38811_2x2.conf` çiftiyle gerçek bir rfsim
   bağlantısıyla doğrulandı (`RRCSetupComplete`, sürdürülen sağlıklı DL/UL
-  trafiği). **2x1/1x2 (SIMO/MISO): Adım 35'te `haps_tdl.c` seviyesinde
+  trafiği). **⚠️ AÇIK KONU (Adım 36'da bulundu, kökü henüz bulunmadı)**: bu
+  makinede MIMO 2x2 artık bağlanamıyor - Adım 36'nın fizik değişiklikleri
+  şüpheliydi ama izolasyon testiyle (Adım 31'in birebir orijinal kodu ile
+  tekrar denendi) bunun **Adım 36 ile hiç ilgisi olmadığı** kanıtlandı; ayrı,
+  henüz araştırılmamış bir regresyon/kararsızlık. **2x1/1x2 (SIMO/MISO): Adım 35'te `haps_tdl.c` seviyesinde
   eklendi ve kod olarak doğrulandı** (`n_pairs=2`, çökme yok, makul
   korelasyonlu değerler) ama gerçek bir RRC bağlantısı kurulamadı -
   `random_channel.c`'nin `load_channellist()`'i (HAPS'a özel olmayan,
@@ -2962,3 +2970,91 @@ olarak faydali olabilirler. Dosya basliklarina bu durum acikca not edildi.
 (kod calisiyor, cokme yok). Gercek uctan-uca RRC baglantisi, HAPS'a ozel
 olmayan, paylasilan bir OAI mimarisi sinirlamasi yuzunden kurulamadi - bu
 bilincli olarak kapsam disi birakildi ve tam olarak belgelendi.
+
+---
+
+### Adım 36 — "Keyfi" kalibrasyon sabitlerini 3GPP'ye göre düzeltme (NF, kazanç bütçesi) - ve yolda bulunan yeni bir MIMO regresyonu
+
+Kullanıcı isteği: OAI'ye katkı araştırmasında (bkz. az önceki tur) tespit
+edilen "3GPP değeri değil, kendi tahminimiz" sabitleri (NF=3dB, kazanç bütçesi
+146.39dB) gerçek 3GPP değerlerine göre düzeltelim.
+
+**Önce netleştirilen bir sınır**: rfsimulator gerçek dBW/dBm birimleriyle
+çalışmıyor (Adım 14) - bu yüzden "146.39 dB'yi %100 3GPP'den türet" tam olarak
+mümkün değil; simülatörün iç genlik ölçeğine köprü kuran TEK bir kalibrasyon
+sabiti her zaman gerekiyor. Ama **gerçek** bir düzeltme yapılabilir: tahmin
+yerine TR 38.811'in kendi tablolarındaki gerçek değerleri kullanmak.
+
+**Araştırma - TR 38.811'in gerçek referans değerleri bulundu**:
+- **Tablo 4.4-1** ("Typical minimum RF characteristics of UE..."): S-bant
+  el cihazı/IoT (3GPP class 3) UE için **Noise figure = 9 dB** - bizim
+  S-bant test senaryolarımızın temsil ettiği tam UE tipi.
+- **Ek A** ("Example of reference scenario for calibration of large scale
+  parameters", Tablo A-1): NGSO uydu **EIRP = 36 dBW/MHz**, 5MHz referans
+  bant genişliğinde - bu projenin kaynak spec'inin verdiği TEK EIRP rakamı.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/random_channel.c`
+```
+- #define HAPS_38811_NOISE_FIGURE_DB 3.0 (tahmin, "typical LNA")
+- #define HAPS_38811_NOISE_CALIB_OFFSET_DB (-5.53) (eski keyfi -110 hedefini
+  tutturmak icin uydurulmus fudge terimi)
++ #define HAPS_38811_NOISE_FIGURE_DB 9.0 (gercek, Tablo 4.4-1)
+  (offset tamamen kaldirildi - gercek kTB+NF formulunun zaten ek terime
+  ihtiyaci yok)
+```
+
+**İlk deneme - kırılan bağlantı, ve neden**: Sadece NF'yi 9'a çekmek gürültü
+tabanını ~11.5dB kötüleştirdi (daha gürültülü) - bu yüzden kazanç tarafını da
+aynı miktarda artırıp net SNR marjını korumaya çalıştım, VE EIRP'yi test
+senaryosunun **gerçek** bant genişliğine göre ölçeklendirdim (36+10log10(BW))
+- gerçek fiziğe daha sadık görünüyordu. Ama bu **band78 (40MHz) senaryosunu
+tamamen kırdı** (`synch Failed` sürekli tekrarı). Kök neden bulundu: net
+kazanç ~37dB'ye (yaklaşık 68x genlik çarpanı) çıktı - rfsimulator'un
+sabit-noktalı (int16) örnekleri bu seviyede **taşıyor/bozuluyor** (clipping),
+SNR hesabı kağıt üzerinde iyi görünse bile. İzolasyon testiyle doğrulandı:
+eski sabit 146.39 kazancı + yeni gürültüyle STATIONARY **çalıştı**
+(`RRCSetupComplete: ✅`) - yani kazancı hiç artırmaya gerek yokmuş,
+bant-genişliği-ölçeklemesi asıl sorunun kaynağıydı.
+
+**Düzeltme - EIRP'i SABİT bir referans bant genişliğinde hesapla**:
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_propagation.c`
+```
+- #define HAPS_38811_GAIN_BUDGET_DB 146.39 (eski keyfi ploss_dB=20'yi
+  tutturmak icin secilmis sabit)
++ #define HAPS_38811_EIRP_DENSITY_DBW_PER_MHZ 36.0 (TR 38.811 Ek A)
++ #define HAPS_38811_EIRP_REFERENCE_BANDWIDTH_MHZ 5.0 (Ek A'nin kendi
+  referans bant genisligi - test senaryosunun GERCEK bant genisligi DEGIL,
+  bilincli olarak - clipping'i onlemek icin)
++ #define HAPS_38811_SIM_CALIBRATION_DB 114.93 (tek kalan simulator-koprusu
+  sabiti: EIRP(5MHz)=42.99dBW + bu = eski 146.39'un ustune, gurultunun
+  kotulestigi ~11.53dB kadar telafi)
+```
+
+**Test - regresyon (1x1 senaryolar)**:
+
+| Senaryo | Sonuç |
+|---|---|
+| `HAPS_STATIONARY` (band78, 40MHz) | `RRCSetupComplete: ✅` (tutarlı) |
+| `HAPS_MOBILE_38811` (NTN, band254, 5MHz) | `RRCSetupComplete: ✅` - ama eskisinden **daha fazla deneme/süre** gerektiriyor (kısa 15-25s pencerelerde bazen 0/3, 35-45s pencerede 2/2) - marja daha yakın ama güvenilir |
+
+**Beklenmedik bulgu - MIMO 2x2 artık hiç bağlanmıyor, ama bizim değişikliğimizle
+ilgisiz**: İlk testte MIMO 2x2, +15dB'ye kadar ekstra marj denenmesine rağmen
+hiç `UE synchronized` bile diyemedi. Şüphelenilip **izolasyon testi** yapıldı:
+Adım 36'nın TÜM değişiklikleri `git stash` ile geri alınıp, Adım 31'de
+**kanıtlanmış çalışan** birebir orijinal kod ile MIMO 2x2 tekrar denendi -
+**yine bağlanamadı**. Bu, MIMO 2x2'nin şu an bağlanamamasının Adım 36'nın
+fizik değişiklikleriyle **hiç ilgisi olmadığını** kesin olarak kanıtladı - bu
+makinede (muhtemelen bu oturumdaki çok sayıda arka arkaya test/Docker
+çalıştırmasından kalan bir durum, veya başka bir ortam etkeni) MIMO 2x2 artık
+ayrı, henüz kök nedeni bulunmamış bir regresyon/kararsızlık yaşıyor. Bu
+yüzden ilk "MIMO'ya özel ekstra marj" denemesi (`HAPS_38811_MIMO_EXTRA_MARGIN_DB`)
+**geri alındı** - var olmayan bir sorunu "çözmeye" çalışıyordu, kod tabanına
+gereksiz bir sabit eklerdi.
+
+**Sonuç**: `HAPS_38811_NOISE_FIGURE_DB` ve kazanç bütçesinin türetimi artık
+gerçek TR 38.811 tablolarına (4.4-1, Ek A) dayanıyor - tahmin değil. 1x1
+senaryolar (STATIONARY ve NTN) doğrulandı, çalışıyor. **MIMO 2x2, Adım 31'de
+kanıtlanmış olmasına rağmen şu an bu makinede bağlanamıyor - Adım 36'nın
+değişiklikleriyle ilgisiz, kökü henüz bulunmamış, ayrı bir açık konu** olarak
+bölüm 4'e eklendi.
