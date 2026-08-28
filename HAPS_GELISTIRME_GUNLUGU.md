@@ -2224,8 +2224,12 @@ dispatch'ini içeriyor.
   `gnb/nrue.haps_mobile_ntn_38811_2x2.conf` çiftiyle gerçek bir rfsim
   bağlantısıyla doğrulandı (`RRCSetupComplete`, sürdürülen sağlıklı DL/UL
   trafiği). 2x1/1x2/4x4 gibi diğer MIMO konfigürasyonları hâlâ desteklenmiyor
-  (bilinçli `AssertFatal`). Kasıtlı olarak hâlâ dışarıda bırakılanlar: Ka-bant
-  DS tabloları (S-bant test senaryolarımız için gerek yoktu), ve `fd_local=1Hz`
+  (bilinçli `AssertFatal`). **Ka-bant DS tabloları: Adım 32'de eklendi** -
+  önceden her zaman S-bant satırı okunuyordu, artık `center_freq`'e göre doğru
+  tablo (Tablo 6.7.2-1b..8b) seçiliyor; bu projede kanıtlanmış bir Ka-bant
+  rfsim senaryosu olmadığı için canlı bağlantıyla doğrulanamadı, sadece S-bant
+  regresyonu (değişmedi) test edildi. Kasıtlı olarak hâlâ dışarıda bırakılan:
+  `fd_local=1Hz`
   (gerçek bir UE hızı parametresinden değil, dokümante edilmiş temsili bir değerden
   türüyor - bu simülatörde hiç UE hızı yok). `HAPS_STATIONARY*` etkilenmedi
   (TDL sadece dinamik-gecikme ailesine eklendi). **Adım 27'de**, `use_38811_pathloss`
@@ -2628,3 +2632,61 @@ mevcut/dogrulanmis bir korelasyon matrisi yeniden kullanildi). 1x1 SISO
 davranisi (kod yolu ve RNG cagri sirasi dahil) degismedi. Diger MIMO
 konfigurasyonlari (2x1, 1x2, 4x4 vb.) hala desteklenmiyor - bilincli olarak
 AssertFatal ile reddediliyor.
+
+---
+
+### Adım 32 — Ka-bant gecikme yayılımı (DS) tabloları
+
+Kullanıcı isteği: MIMO'dan sonra sunulan iki maddeden ("Ka-bant DS tabloları",
+"iyonosferik sintilasyon") **Ka-bant DS tabloları** seçildi.
+
+**Sorun**: Adım 21, NTN-TDL'nin gecikme yayılımı (DS) ölçekleme değerini TR
+38.811 Tablo 6.7.2-1a..8a'dan (S-bant) çıkarmıştı; aynı tabloların Ka-bant
+karşılığı (6.7.2-1b..8b) spec'te var ama hiç çıkarılmamıştı - yani
+`haps_update_tdl_taps()` frekanstan bağımsız olarak **her zaman** S-bant DS
+satırını okuyordu, Ka-bant bir senaryoda (örn. herhangi bir `_38811_URBAN`
+Ka-bant testi) bile.
+
+**Araştırma**: `38811.txt` (daha önce indirilmiş PDF'in `pdftotext` çıktısı)
+üzerinden 8 Ka-bant tablosunun ("Delay spread (DS)" satırı, `lgDS`) tamamı
+tek tek okunup çıkarıldı: 6.7.2-1b (Yoğun Kentsel LOS), -2b (NLOS), -3b
+(Kentsel LOS), -4b (NLOS), -5b (Banliyö LOS), -6b (NLOS), -7b (Kırsal LOS),
+-8b (NLOS). Adım 21'in kuralıyla tutarlı şekilde, Banliyö+Kırsal satırları
+aritmetik ortalamayla tek `SUBURBAN_RURAL` satırına birleştirildi.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/sim.h`
+```
++ Eklendi: HAPS_38811_S_VS_KA_THRESHOLD_GHZ tanımı buraya taşındı (önceden
+  haps_propagation.c'de private #define'dı) - artık haps_tdl.c ile paylaşılıyor,
+  ikisi de aynı eşiği kullanıyor.
+```
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_propagation.c`
+```
+~ Değiştirildi: yerel HAPS_38811_S_VS_KA_THRESHOLD_GHZ #define'ı kaldırıldı,
+  sim.h'deki paylaşılan tanıma geçildi.
+```
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_tdl.c`
+```
+~ Değiştirildi: lgDS_los/lgDS_nlos -> lgDS_los_s/lgDS_nlos_s (S-bant, aynı
+  değerler, sadece isim netleştirildi)
++ Eklendi: lgDS_los_ka[3][9]/lgDS_nlos_ka[3][9] (Tablo 6.7.2-1b..8b'den)
+~ Değiştirildi: haps_update_tdl_taps() artık channelDesc->center_freq'e göre
+  (>= 6GHz ise Ka-bant) doğru tabloyu seçiyor.
+```
+
+**Derleme**: `ninja rfsimulator nr-softmodem nr-uesoftmodem` - temiz.
+
+**Test (regresyon)**: `gnb/nrue.haps_mobile_ntn_38811.conf` (S-bant, band254)
+`HAPS_DEBUG_TDL=1` ile tekrar çalıştırıldı: `DS=5.4ns` - değişiklik öncesiyle
+**birebir aynı** değer, `synchronized`+`RRCSetupComplete` sağlıklı. Bu
+projede hiç kanıtlanmış bir Ka-bant rfsim test senaryosu olmadığı için (bkz.
+Adım 17/22 - Ka-bant hep placeholder/hesaplama seviyesinde kaldı, uçtan uca
+test edilmedi) Ka-bant seçim mantığının kendisi canlı bir bağlantıyla
+doğrulanamadı - basit bir frekans eşiği + tablo indeksleme olduğu için ve
+sayıların spec'ten satır satır doğru aktarıldığı iki kez kontrol edildiği
+için kabul edilebilir bir risk olarak değerlendirildi.
+
+**Sonuç**: Ka-bant DS tabloları artık projede mevcut, S-bant davranışı
+değişmedi (regresyonla doğrulandı).
