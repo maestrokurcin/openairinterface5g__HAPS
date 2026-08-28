@@ -2225,8 +2225,16 @@ dispatch'ini içeriyor.
   yolunda zaten var olan yaklaşım) HAPS TDL'ye de uygulandı, yeni
   `gnb/nrue.haps_mobile_ntn_38811_2x2.conf` çiftiyle gerçek bir rfsim
   bağlantısıyla doğrulandı (`RRCSetupComplete`, sürdürülen sağlıklı DL/UL
-  trafiği). 2x1/1x2/4x4 gibi diğer MIMO konfigürasyonları hâlâ desteklenmiyor
-  (bilinçli `AssertFatal`). **Ka-bant DS tabloları: Adım 32'de eklendi** -
+  trafiği). **2x1/1x2 (SIMO/MISO): Adım 35'te `haps_tdl.c` seviyesinde
+  eklendi ve kod olarak doğrulandı** (`n_pairs=2`, çökme yok, makul
+  korelasyonlu değerler) ama gerçek bir RRC bağlantısı kurulamadı -
+  `random_channel.c`'nin `load_channellist()`'i (HAPS'a özel olmayan,
+  projedeki TÜM kanal modellerinin paylaştığı bir mekanizma) asimetrik
+  bağlantılarda uplink/downlink modellerine aynı yerel `nb_tx`/`nb_rx`
+  çiftini veriyor, yön-bazlı doğru eşlemeyi kaybediyor - bilinçli olarak
+  kapsam dışı bırakıldı (HAPS projesinin dışına çıkan, paylaşılan bir mimari
+  düzeltme gerektiriyor). 4x4 hâlâ desteklenmiyor (bilinçli `AssertFatal`).
+  **Ka-bant DS tabloları: Adım 32'de eklendi** -
   önceden her zaman S-bant satırı okunuyordu, artık `center_freq`'e göre doğru
   tablo (Tablo 6.7.2-1b..8b) seçiliyor; bu projede kanıtlanmış bir Ka-bant
   rfsim senaryosu olmadığı için canlı bağlantıyla doğrulanamadı, sadece S-bant
@@ -2843,3 +2851,114 @@ kendisi, resmi imaj derleme zinciri değil) artık gerçek bir `docker compose u
 ile doğrulandı. Disk temizliği kalıcı (snap/apt), yeni dosyalar (`Dockerfile.lite`,
 `docker-compose.lite.yml`) kalıcı - ama `/tmp/haps-oai-runtime` geçici bir
 staging dizini, kalıcı değil.
+
+---
+
+### Durum kontrolü — Adım 34 sonrası genel özet
+
+Kullanıcı sorusu: "şu an haps kanalım sorunsuz çalışıyor herhangi bir sıkıntısı
+yok değil mi". Dürüst cevap: **bilinen bir bug yok, ama "hiçbir sıkıntısı yok"
+demek fazla iyimser olur** - birkaç bilinçli, belgelenmiş sınır var. Gelecekte
+referans olması için tam liste burada kayıt altına alınıyor:
+
+**Sağlam ve doğrulanmış** (hepsi bu günlükte kendi Adım'ında detaylı):
+tüm yol kaybı/gürültü/sönümleme fiziği (TR 38.811 + ITU-R P.676/P.838/P.2109),
+MIMO 2x2, band78/NTN PRACH ve TA/SRS düzeltmeleri, Docker (hafif imaj
+üzerinden gerçek bağlantı).
+
+**Bilinçli, belgelenmiş sınırlar (bug değil, ama bilinmesi gereken)**:
+- `fd_local` artık gerçek 3km/h hızından türetiliyor (Adım 33) - bu **ara sıra,
+  gerçekçi bir şekilde bağlantı kesilmesine** yol açabilir (derin sönüm + HARQ
+  marjı yetersizliği) - kullanıcı bunu kabul etti ama bu "sıfır sorun" anlamına
+  gelmiyor, aktif izlenmesi gereken bir davranış.
+- Ka-bant DS tablo seçimi (Adım 32) hiç canlı bir Ka-bant senaryosuyla test
+  edilmedi (böyle bir senaryo bu projede yok) - sadece kod/sayı incelemesiyle
+  doğrulandı.
+- MIMO (Adım 31) sadece 1x1/2x2 destekliyor; başka bir konfigürasyon (2x1,
+  1x2, 4x4 vb.) `AssertFatal` ile reddediliyor.
+- Resmi Docker imaj derleme zinciri (`Dockerfile.gNB.ubuntu`/`Dockerfile.nrUE.ubuntu`)
+  ve `oai-amf` (gerçek 5G core) bu projede **hiç** test edilmedi (Adım 34) -
+  sadece hafif bir eşdeğer doğrulandı, core network hiçbir testte kullanılmadı.
+- İyonosferik sintilasyon eklenmedi (Adım 22'de orta enlemde ~0 olduğu
+  varsayıldı, ölçülmedi).
+- `SAT_LEO_TRANS/REGEN` (bu HAPS çalışmasının uyarlandığı orijinal uydu modeli)
+  bu makinede hiç doğrulanmadı (bkz. `oai-leo-to-haps-adaptation` hafıza
+  notu) - bu proje HAPS'a odaklı, LEO kapsam dışı.
+
+---
+
+### Adım 35 — 2x1/1x2 (SIMO/MISO): kod eklendi, gerçek RRC bağlantısı OAI'nin genel bir sınırına takıldı
+
+Kullanıcı isteği: MIMO'nun sadece 1x1/2x2 desteklediği (Adım 31) belirtildikten
+sonra, "diğer MIMO seçenekleriyle" (2x1/1x2, 4x4) devam et - kullanıcı önce
+küçük/düşük riskli 2x1/1x2 eklemeyi seçti.
+
+**Kod**: Adım 31'in 2x2 yaklaşımıyla aynı desen - yeni bir korelasyon matrisi
+icat etmek yerine `random_channel.c`'de zaten var olan `R_sqrt_21_corr`
+(tam korelasyonlu, h1==h2 - 2x1/1x2 için "medium" bir matris bu kod tabanında
+hiç yok) yeniden kullanıldı.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_tdl.c`
+```
++ Eklendi: haps_R_sqrt_21_corr[4] (random_channel.c'nin R_sqrt_21_corr'uyla
+  birebir ayni degerler)
+~ Degistirildi: AssertFatal artik n_pairs==2'yi de kabul ediyor; korelasyon
+  uygulama dongusu sabit "4" yerine genel "n_pairs" ile calisiyor, n_pairs==2
+  icin haps_R_sqrt_21_corr'u, n_pairs==4 icin haps_R_sqrt_22_medium'u seciyor.
+```
+
+**Derleme**: `ninja rfsimulator nr-softmodem nr-uesoftmodem` - temiz.
+
+**Test - kod dogru calisiyor ama RRC baglantisi kurulamadi**: Yeni
+`gnb/nrue.haps_mobile_ntn_38811_2x1.conf` (gNB TX=2/RX=1, UE TX=1/RX=2,
+capraz-eslesmis) ile test edildi. `HAPS_DEBUG_TDL` izi `n_pairs=2` dogru
+hesaplandigini, cokme/assert olmadigini, makul korelasyonlu sonumleme
+degerleri uretildigini gosterdi - **kodun kendisi dogrulandi**. Ama UE hicbir
+zaman SSB'yi bulamadi (`synch Failed` tekrar tekrar) - RRC baglantisina hic
+ulasilamadi.
+
+**Kok neden arastirmasi**: Once bir arka-plan arastirma ajani (OAI'nin
+SSB/PBCH cok-antenli gNB TX yolunu, UE'nin ilk senkronizasyon kodunu, ve
+rfsimulator'un sentetik AWGN-MIMO yedek kanal modelini inceledi) sonra kendim
+devam ettim:
+- SSB her zaman TEK bir mantiksal anten portundan gonderiliyor (3GPP spec
+  gereği, `doc/ORAN_FHI7.2_Tutorial.md`'nin kendi notu: "currently, a single
+  antenna port is used for SSB transmission") - `nb_tx=2` bunu değiştirmiyor,
+  bug degil.
+- UE'nin senkronizasyon kodunda (`pss_nr.c`/`sss_nr.c`) `nb_rx`'i gNB'nin
+  `nb_tx`'ine bağlayan bir varsayım yok.
+- Arastirma ajaninin supheledigi `rfsimulator`'un sentetik `H_awgn_mimo_coeff`
+  yedek kanal modeli (`simulator.cpp`) **bizim senaryomuzda devrede degil** -
+  bizim config'lerimiz `options = ("chanmod")` ile kendi HAPS kanal modelimizi
+  kullaniyor, sentetik yedek degil.
+- **Asil kok neden** (kendi izlememle bulundu): `random_channel.c:2501`'deki
+  `load_channellist(nb_tx, nb_rx, ...)` - bu fonksiyon, HER İKİ kanal modeli
+  ornegini de (downlink `rfsimu_channel_enB0` VE uplink `rfsimu_channel_ue0`,
+  ayni gNB/UE surecinde) **AYNI yerel nb_tx/nb_rx ciftiyle** olusturuyor,
+  hangi yonu temsil ettiklerine bakmaksizin. 1x1'de (trivial) ve simetrik
+  2x2'de (her iki taraf zaten esit) bu hic sorun yaratmiyor, ama gercekten
+  asimetrik bir baglantida (2x1/1x2) yon-bazli capraz-eslesme kayboluyor -
+  ornegin gNB tarafinda "uplink" modeli (UE'nin 1 TX anteninin yansitmasi
+  gerekirken) gNB'nin KENDI 2 TX antenini kullaniyor, bu da `rxAddInput()`'in
+  (apply_channelmod.c) var olmayan bir ikinci TX akisini okumaya calismasina
+  yol aciyor - sinyal SSB'ye ulasmadan once bozuluyor.
+
+**Bu, HAPS'a ozel degil**: `load_channellist()` bu kod tabanindaki TUM kanal
+modelleri (SCM_A, TDL_A-E, SAT_LEO_TRANS/REGEN, HAPS_*) tarafindan paylasilan
+temel bir mekanizma - duzeltmek HAPS disina cikan, projedeki her modeli
+etkileyen bir mimari degisiklik olurdu.
+
+**Kullanici karari**: Boyle birakildi - `haps_tdl.c`'nin kendi kodu (n_pairs=2)
+dogrulandi, bu yeterli kanit kabul edildi; `load_channellist()`'i duzeltmek
+bu HAPS projesinin kapsaminin disina cikan, paylasilan/temel bir degisiklik
+oldugu icin yapilmadi.
+
+**Test config'leri korundu**: `gnb/nrue.haps_mobile_ntn_38811_2x1.conf`
+silinmedi - `n_pairs=2` kod yolunu gercekten calistirdiklarini kanitliyorlar,
+gelecekte biri `load_channellist()`'i duzeltirse hazir bir test senaryosu
+olarak faydali olabilirler. Dosya basliklarina bu durum acikca not edildi.
+
+**Sonuc**: 2x1/1x2 MIMO destegi `haps_tdl.c` seviyesinde eklendi ve dogrulandi
+(kod calisiyor, cokme yok). Gercek uctan-uca RRC baglantisi, HAPS'a ozel
+olmayan, paylasilan bir OAI mimarisi sinirlamasi yuzunden kurulamadi - bu
+bilincli olarak kapsam disi birakildi ve tam olarak belgelendi.
