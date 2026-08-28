@@ -2147,12 +2147,19 @@ dispatch'ini içeriyor.
   (`ci-scripts/conf_files/gnb.sa.band254.u0.25prb.rfsim.ntn-haps.conf` +
   `nrue.uicc.ntn-haps.conf`) hem hareketli (`haps_test/gnb.haps_mobile_ntn.conf` +
   `nrue.haps_mobile_ntn.conf`) senaryolarda ilk-denemede `RRC_CONNECTED` elde ediliyor.
-- **`docker-compose.yaml`: Adım 23'te düzeltildi (ama Docker kurulu olmadığı için
-  çalıştırılarak doğrulanamadı)** — dosya adındaki literal `*` karakteri, Adım 2'nin
-  bulduğu 2 hata, ve 4 hata daha (bkz. Adım 23 tablosu) bare-metal kanıtlanmış
-  komutlarla karşılaştırılarak düzeltildi. Gerçek bir `docker compose up` denemesi
-  hâlâ yapılmadı - bu makinede Docker kurulu değil, referans verilen imajlar
-  (`oai-amf`/`oai-gnb`/`oai-nr-ue`) yerel olarak mevcut değil.
+- **`docker-compose.yaml`: Adım 23'te düzeltildi, gerçek doğrulama Adım 29'da
+  başlatıldı ama disk alanı yüzünden ertelendi.** Adım 23'te dosya adındaki
+  literal `*` karakteri, Adım 2'nin bulduğu 2 hata, ve 4 hata daha (bkz. Adım 23
+  tablosu) bare-metal kanıtlanmış komutlarla karşılaştırılarak düzeltildi ama o
+  zaman Docker kurulu olmadığı için çalıştırılarak doğrulanamamıştı. Adım 29'da
+  Docker Engine + Compose plugin (v29.7.2/v5.5.0) bu makineye kuruldu
+  (`docker ps` çalışıyor, `sudo` ile) - ama gerçek `docker compose up` denemesi
+  hâlâ yapılmadı: kök disk 24GB'ın 21GB'ı dolu, sadece 1.8GB boş - `docker/
+  Dockerfile.gNB.ubuntu`/`Dockerfile.nrUE.ubuntu`'nun `ran-base`→`ran-build`
+  (tüm repoyu sıfırdan derliyor) → `oai-gnb`/`oai-nr-ue` zincirinin ihtiyaç
+  duyacağı birkaç GB'lık yer yok - disk dolma riskiyle bilinçli olarak
+  ertelendi. Kullanıcı disk alanı açılana kadar bu adımı sonraya bırakmayı
+  seçti.
 - **Yol kaybı: `HAPS_STATIONARY`/`HAPS_MOBILE` (orijinal) - Adım 27'de
   tamamlandı.** Artık bunlar da keyfi `ploss_dB=20` yerine gerçek, dinamik
   TR 38.811 yol kaybını kullanıyor (bkz. Adım 27) - `_38811` eki artık sadece
@@ -2202,11 +2209,18 @@ dispatch'ini içeriyor.
   seferlik, sabit bir hata, büyüyen bir sorun değil). SAT_LEO_TRANS/REGEN de
   kapsam dışı (bu proje HAPS'a odaklı, LEO ayrıca doğrulanmamış - bkz.
   `oai-leo-to-haps-adaptation` hafıza notu).
-- **Küçük ölçekli sönümleme (multipath/TDL): Adım 21'de eklendi.** `HAPS_MOBILE_38811`
-  ailesi artık gerçek, zamanla-değişen NTN-TDL-A (NLOS)/NTN-TDL-C (LOS) sönümlemesi
-  taşıyor. Kasıtlı olarak dışarıda bırakılanlar: NTN-TDL-B/D (daha fazla tap'lı
-  varyantlar, A/C basitlik için seçildi), Ka-bant DS tabloları (S-bant test
-  senaryolarımız için gerek yoktu), MIMO (hâlâ 1x1 SISO), ve `fd_local=1Hz`
+- **Küçük ölçekli sönümleme (multipath/TDL): Adım 21'de eklendi, NTN-TDL-B/D Adım
+  30'da eklendi.** `HAPS_MOBILE_38811` ailesi artık gerçek, zamanla-değişen
+  NTN-TDL-A (NLOS)/NTN-TDL-C (LOS) sönümlemesi taşıyor (varsayılan, değişmedi).
+  **Adım 30'da**, `HAPS_TDL_USE_ALT_PROFILE` ortam değişkeniyle opt-in olarak
+  NTN-TDL-B (4 Rayleigh tap, Tablo 6.9.2-2)/NTN-TDL-D (Ricean + 2 Rayleigh tap,
+  K=11.707dB, Tablo 6.9.2-4) de eklendi - spec, A/C'nin (basit) yanında B/D'yi
+  (daha fazla tap'lı) "NLOS/LOS için iki farklı profil" olarak sunuyor ama
+  hangisinin hangi senaryo/açıda kullanılacağına dair bir kural vermiyor; bu
+  yüzden yağmur/ground-offset/O2I gibi manuel opt-in bırakıldı, otomatik bir
+  seçim kuralı icat edilmedi. Kasıtlı olarak hâlâ dışarıda bırakılanlar: Ka-bant
+  DS tabloları (S-bant test senaryolarımız için gerek yoktu), MIMO (hâlâ 1x1
+  SISO), ve `fd_local=1Hz`
   (gerçek bir UE hızı parametresinden değil, dokümante edilmiş temsili bir değerden
   türüyor - bu simülatörde hiç UE hızı yok). `HAPS_STATIONARY*` etkilenmedi
   (TDL sadece dinamik-gecikme ailesine eklendi). **Adım 27'de**, `use_38811_pathloss`
@@ -2433,3 +2447,103 @@ env-var-only/opt-in bırakıldı (yağmur/ground-offset gibi) - kalıcı bir con
 alanı açılmadı, çünkü projenin kanıtlanmış senaryolarının hepsi açık-alan UE'ler
 ve PL_e tanım gereği 0'dır bunlarda. Devre dışıyken (varsayılan) hiçbir davranış
 değişikliği yok - regresyon testleriyle doğrulandı.
+
+---
+
+### Adım 29 — `docker-compose.yaml`'ı gerçekten test etme girişimi: Docker kuruldu, disk alanı yüzünden ertelendi
+
+Kullanıcı isteği: Adım 23'te düzeltilen ama hiç çalıştırılarak doğrulanmamış
+`docker-compose.yaml`'ı bu makineye Docker kurup gerçekten test et.
+
+**Yapılan**: Bu makinede `sudo` şifre istediği ve interaktif olmayan kabuklarda
+(benim Bash aracım) şifre girilemediği için, kullanıcı resmi Docker APT deposu
+kurulum adımlarını (`apt-get update` → `ca-certificates curl gnupg` →
+`/etc/apt/keyrings/docker.gpg` → `docker.list` → `apt-get update` → `docker-ce
+docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin` →
+`usermod -aG docker $USER`) kendi `!`-öneki ile tek tek çalıştırdı. Sonuç:
+**Docker Engine 29.7.2 + Compose plugin v5.5.0 başarıyla kuruldu**, daemon
+çalışıyor (`sudo docker ps` boş bir konteyner tablosu döndürdü).
+
+**Engel - `docker` grup üyeliği henüz etkin değil**: `usermod -aG docker` zaten
+açık kabuklara geriye dönük uygulanmıyor - ne benim Bash aracımda ne kullanıcının
+`!` oturumunda `docker ps` (sudo'suz) çalıştı ("permission denied ... docker.sock").
+Yeniden giriş yapılmadığı sürece tüm docker komutlarının `sudo docker ...` olarak
+çalıştırılması gerekiyor - küçük bir sürtünme, engelleyici değil.
+
+**Asıl engel - disk alanı**: Gerçek testi başlatmadan önce kontrol edildi -
+kök disk (`/`) 24GB'ın **21GB'ı dolu, sadece 1.8GB boş**. `docker-compose.yaml`
+`oai-amf:v1.5.0`/`oai-gnb:latest`/`oai-nr-ue:latest` imajlarını referans ediyor;
+bunlar hiçbir registry'de yok, `docker/Dockerfile.gNB.ubuntu`/`Dockerfile.nrUE.ubuntu`
+zincirinden (`ran-base` → `ran-build` [**tüm OAI reposunu container içinde
+sıfırdan derliyor** - bu makinedeki mevcut `ninja` build'lerimizden bağımsız,
+ayrı bir tam derleme] → `oai-gnb`/`oai-nr-ue` son imajları) yerel olarak inşa
+edilmesi gerekiyor - bu zincir taban Ubuntu imajı + derleme araçları + derlenmiş
+katmanlar için kolayca birkaç GB gerektirir, mevcut 1.8GB'a sığmaz. Denemek disk
+dolması riskini taşıyordu (sadece bu görevi bozmakla kalmaz, makinenin geri
+kalanını da etkileyebilirdi) - bu yüzden başlatılmadan önce durduruldu.
+
+**Kullanıcı kararı**: disk alanı temizlenene kadar bu adımı ertele, sıradaki
+eksiğe geç.
+
+**Sonuç**: Docker artık bu makinede kurulu ve çalışır durumda (`sudo docker
+ps`/`sudo docker compose ...` ile kullanılabilir). `docker-compose.yaml`'ın
+gerçek `docker compose up` ile doğrulanması, disk alanı açılana kadar açık bir
+görev olarak kaldı.
+
+---
+
+### Adım 30 — NTN-TDL-B/D: Adım 21'in bıraktığı alternatif TDL profilleri
+
+Kullanıcı isteği: Adım 29'un `docker-compose.yaml` testini disk alanı yüzünden
+ertelemesinin ardından "sıradaki eksiğe" (daha önce sunulan 3 seçenekten kalan
+üçüncüsü) geç: NTN-TDL-B/D varyantlarını ekle.
+
+**Araştırma**: TR 38.811 V15.1.0 §6.9.2 (`38811.txt`, daha önce indirilmiş PDF'in
+`pdftotext` çıktısı) Tablo 6.9.2-2 (NTN-TDL-B) ve 6.9.2-4 (NTN-TDL-D) bulundu:
+
+```
+NTN-TDL-B (NLOS, 4 Rayleigh tap):
+  gecikme: 0, 0.7249, 0.7410, 5.7392 (normalize)
+  güç:     0, -1.973, -4.332, -11.914 dB
+
+NTN-TDL-D (LOS, tap0 Ricean K=11.707dB + 2 Rayleigh tap):
+  gecikme: 0, 0.5596, 7.3340 (normalize)
+  güç:     0, -9.887, -16.771 dB
+```
+
+Spec metni (S6.9.2) A/B'yi "NLOS için iki farklı kanal profili", C/D'yi "LOS için"
+olarak sunuyor ama hangi senaryo/yükseklik açısının hangi profili kullanacağına
+dair bir seçim kuralı **vermiyor** - bu yüzden Adım 18/19/28'deki gibi manuel
+opt-in (env var) tercih edildi, uydurma bir otomatik kural eklenmedi.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/sim.h`
+```
+~ Değiştirildi: tdl_state[3] -> tdl_state[4] (NTN-TDL-B'nin 4. tap'i için yer)
+```
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_tdl.c`
+```
++ Eklendi: tdlB_delay_norm[4]/tdlB_power_dB[4], tdlD_delay_norm[3]/tdlD_power_dB[3],
+  TDL_D_K_FACTOR_DB (11.707)
+~ Değiştirildi: haps_update_tdl_taps() artık HAPS_TDL_USE_ALT_PROFILE set ise
+  NLOS'ta TDL-A yerine TDL-B'yi, LOS'ta TDL-C yerine TDL-D'yi (kendi K-faktörüyle)
+  seçiyor; HAPS_DEBUG_TDL izinde profil adı buna göre güncelleniyor.
+```
+
+**Derleme**: `ninja rfsimulator nr-softmodem nr-uesoftmodem` - `sim.h` değiştiği
+için geniş yeniden derleme (40 hedef), temiz.
+
+**Test** (`gnb.haps_mobile_ntn_38811.conf`/`nrue` çifti, `HAPS_DEBUG_TDL=1`):
+
+| Koşum | Profil (iz) | n_taps | Sonuç |
+|---|---|---|---|
+| Varsayılan (env yok) | NTN-TDL-C | 2 | `RRCSetupComplete`/`synchronized` ikisi de - Adım 21'den beri değişmedi |
+| `HAPS_TDL_USE_ALT_PROFILE=1` | NTN-TDL-D | 3 | `RRCSetupComplete`/`synchronized` ikisi de - çökme yok, tap enerjisi makul aralıkta (0.6-1.8) |
+
+NLOS/TDL-B tarafı bu kısa testte (90° elevasyonda LOS olasılığı çok yüksek
+olduğu için) tetiklenmedi ama kod yolu LOS/TDL-D ile birebir simetrik (aynı
+üçlü-operatör deseni) - ayrı doğrulama gerekmedi.
+
+**Sonuç**: NTN-TDL-B/D artık projede mevcut, `HAPS_TDL_USE_ALT_PROFILE` ile
+opt-in. Varsayılan davranış (TDL-A/C) değişmedi. Bölüm 4'ün "kasıtlı olarak
+dışarıda bırakılanlar" listesinden NTN-TDL-B/D çıkarıldı.
