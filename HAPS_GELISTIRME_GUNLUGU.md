@@ -3058,3 +3058,52 @@ senaryolar (STATIONARY ve NTN) doğrulandı, çalışıyor. **MIMO 2x2, Adım 31
 kanıtlanmış olmasına rağmen şu an bu makinede bağlanamıyor - Adım 36'nın
 değişiklikleriyle ilgisiz, kökü henüz bulunmamış, ayrı bir açık konu** olarak
 bölüm 4'e eklendi.
+
+---
+
+### Adım 37 — Kod stilini OAI'nin `.clang-format` standardına uydurma
+
+Kullanıcı isteği: OAI'ye katkı araştırmasında (bir önceki tur) tespit edilen
+"clang-format uyumu bu makinede doğrulanamadı" eksiğini gider.
+
+**Kurulum**: `clang-format` bu makinede kurulu değildi. `apt-cache policy`
+ile paket boyutu kontrol edildi (`libllvm14` ~105MB kurulu boyut, disk
+alanımız 1.2GB - güvenli) - kullanıcı `sudo apt-get install -y clang-format`
+komutunu kendi `!` oturumunda çalıştırdı. `git-clang-format` da aynı paketle
+geldi - bu, sadece bizim DEĞİŞTİRDİĞİMİZ satırları biçimlendiren, paylaşılan
+dosyalardaki dokunmadığımız kodu hiç etkilemeyen doğru araç (repodaki
+`.clang-format` dosyasını otomatik kullanıyor).
+
+**Uygulama**: `git-clang-format 42bf80e9...` (bu HAPS projesinin başladığı,
+`origin/develop`'tan ayrıldığımız commit) - tüm 18 commit'lik HAPS
+çalışmasının diff'ini kapsayacak şekilde.
+
+**[Dosya]** 12 dosyada sadece biçimlendirme (satır sarma/hizalama) değişikliği,
+fonksiyonel kod değişmedi:
+```
+openair1/PHY/NR_UE_TRANSPORT/nr_ntn_l1.c (Adım 10-13'ün NTN TA kodu)
+openair1/SIMULATION/TOOLS/haps_config.c
+openair1/SIMULATION/TOOLS/haps_gas.c
+openair1/SIMULATION/TOOLS/haps_geometry.c
+openair1/SIMULATION/TOOLS/haps_propagation.c
+openair1/SIMULATION/TOOLS/haps_rain.c
+openair1/SIMULATION/TOOLS/haps_tdl.c
+openair1/SIMULATION/TOOLS/random_channel.c
+openair1/SIMULATION/TOOLS/sim.h
+openair2/LAYER2/NR_MAC_UE/nr_ue_procedures.c (Adım 25'in SRS kodu)
+openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_ulsch.c (Adım 25'in SRS kodu)
+radio/rfsimulator/apply_channelmod.c
+```
+
+**Kontrol edildi**: `haps_scint.c`, `haps_o2i.c`, `radio/rfsimulator/haps_channel.h/.c`
+`clang-format --dry-run --Werror` ile zaten tam uyumlu bulundu, değişiklik
+gerekmedi.
+
+**Derleme + regresyon**: `ninja rfsimulator nr-softmodem nr-uesoftmodem` -
+temiz. `HAPS_STATIONARY` (band78) senaryosu tekrar test edildi -
+`RRCSetupComplete: ✅` - biçimlendirme değişikliklerinin (beklendiği gibi)
+davranışa hiçbir etkisi olmadığı doğrulandı.
+
+**Sonuç**: Bu projenin dokunduğu/oluşturduğu tüm dosyalar artık OAI'nin
+`.clang-format` standardına tam uyumlu - önceki OAI'ye katkı araştırmasında
+bulunan bir eksik giderildi.
