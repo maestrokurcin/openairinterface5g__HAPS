@@ -715,3 +715,45 @@ eşiği −11 ile −19 dB arasında bir yerde, ilk kez bu kadar dar sınırland
 **Sonuç**: ✅ Bug düzeltildi (Adım 41), hipotez **hâlâ doğrulanıyor** ve artık
 daha güvenilir: O2I açıkken (herhangi bir gerçekçi çekim seviyesinde) bu
 senaryoda link kurulamıyor.
+
+---
+
+### Deney 8 — Ara mesafe (`HAPS_GROUND_OFFSET_M=10000`)
+
+- **Tarih**: 2026-09-01
+- **Değişen tek şey**: `HAPS_GROUND_OFFSET_M=10000` (baz senaryo — banliyö;
+  Deney 2'nin 35 km'sinden daha ılımlı bir ara nokta)
+- **Geometri**: eğik mesafe ~22.4 km, yükseklik açısı ~55-63° (loiter yörüngesi
+  yüzünden anlık olarak değişiyor)
+- **Beklenti**: kademeli, hafif bozulma — Deney 2'nin (35 km, 27°) sert
+  başarısızlığından çok daha az
+- **Süre**: 3 koşu (kural 7 — LOS/NLOS hâlâ stokastik), ~65 sn her biri
+
+**Sonuç**
+
+| Koşu | Elev | Durum (donmuş) | netgain | Sonuç |
+|---|---|---|---|---|
+| #1 | ~57° | **NLOS** (bir yönde) | **−28.1 dB** | ❌ bağlanamıyor (1973 synch-fail) |
+| #2 | ~55° | LOS | −7.2…−7.3 dB | ✅ temiz (UL `455/0/0/0`) |
+| #3 | ~55° | LOS | −9.96 dB | ✅ temiz (UL `405/0/0/0`, DL `42/0/0/0`) |
+
+**Yorum**
+
+- **2/3 koşu temiz ve kademeli**: netgain baz senaryonun (−6 dB) biraz altında
+  (−7…−10 dB) — beklenen hafif bozulma, `suburban[elev≈55-60°]` LOS olasılığı
+  hâlâ yüksek (~0.94).
+- **1/3 koşu tamamen başarısız oldu** — ama beklenmedik bir mekanizmayla:
+  **DL ve UL kanalları bağımsız donmuş çekimler yapıyor** (her yönün kendi
+  `haps_ctx`'i var). Bu koşuda **yalnızca bir yön** NLOS çekti (~%6 olasılık,
+  suburban 55-60°'de) → o yönde +18 dB clutter + geniş SF → netgain −28 dB.
+  Diğer yön muhtemelen LOS'tu ama DL senkronu (SSB/PBCH) o kötü yöne bağlı
+  olduğu için tüm bağlantı kurulamadı. İki yönün bağımsız çekilmesi yüzünden
+  "en az bir yön NLOS" olasılığı tek-yön olasılığından (~%6) yüksek (~%12,
+  1-0.94²) — 3 koşuda 1 kez görülmesi istatistiksel olarak makul.
+
+**Sonuç**: ✅ Hipotez (kademeli bozulma) kısmen doğrulandı — tipik durumda
+netgain kademeli düşüyor ve link çalışıyor, ama **tek yönlü şanssız bir NLOS
+çekimi tüm bağlantıyı düşürebiliyor** çünkü DL/UL bağımsız gerçekleşimler.
+Bu, ara-mesafe senaryolarının "kısmen çalışıyor" değil "çoğunlukla çalışıyor,
+ara sıra tamamen düşüyor" şeklinde davrandığını gösteriyor — gerçek NTN
+sistemlerinde de düşük-orta yükseklik açılarında beklenen bir davranış.
