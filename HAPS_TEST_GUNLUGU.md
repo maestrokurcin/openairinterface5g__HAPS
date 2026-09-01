@@ -849,3 +849,53 @@ donma anındaki yükseklik açısı tam 90° değil ~84-87° → `los_prob` 0.95
 yürüyüşle aynı. NTN + HAPS geometrisi düşük platform Doppler'i sağladığı için,
 kritik olan UE'nin kendi yerel-saçılma Doppler'i ve o da ancak otoyol
 hızlarında marjinal etkili oluyor.
+
+---
+
+### Deney 11 — Yoğun kentsel + düşük yükseklik açısı (en kötü durum)
+
+- **Tarih**: 2026-09-01
+- **Değişen (Deney 2'ye göre)**: senaryo `URBAN` → `DENSE_URBAN`
+  (`HAPS_GROUND_OFFSET_M=35000` sabit, eğik mesafe ~44 km, yükseklik açısı ~27°)
+- **Beklenti**: Deney 2'den de kötü — yoğun kentselin LOS olasılığı daha düşük,
+  gölgeleme yayılımı çok daha geniş
+- **Süre**: 8 koşu (kural 7 + LOS çekimini yakalamak için), 48-100 sn
+
+**Sonuç**
+
+| Durum çekimi | Koşu sayısı | netgain aralığı | Sonuç |
+|---|---|---|---|
+| **NLOS** | 7/8 | **−27 … −65 dB** | ❌ hepsi bağlanamıyor |
+| **LOS** | 1/8 (run #4) | −11.6 dB (sabit) | ❌ 48 sn'de senkron olamadı (sınırda) |
+
+- **0/8 koşu bağlandı.**
+- NLOS oranı 7/8, `los_prob[dense_urban, 27°] = 0.398` ile tutarlı (iki bağımsız
+  yön için "en az biri NLOS" ~%84).
+- NLOS netgain aralığı çok geniş (−27 … −65 dB) — yoğun kentsel NLOS
+  `sigma_SF = 12.4 dB` (kentselin 6 dB'sinin iki katından fazla), donmuş çekim
+  koşudan koşuya devasa değişiyor.
+- **2/8 koşuda UE segfault** verdi (uzun süre senkron olamama yolunda) — bu
+  OAI'nin bilinen bir dayanıklılık sorunu (Geliştirme Günlüğü'ndeki LEO notu da
+  aynısını belirtiyor), HAPS koduna özgü değil.
+
+**Yükseklik açısı / senaryo ilerlemesi** (net kazanç ve bağlanma olasılığı):
+
+| Deney | Senaryo / geometri | Tipik netgain | Bağlanma |
+|---|---|---|---|
+| Baz / D1 | banliyö-kentsel, **zenit** | −6 … −7 dB | ~%100 |
+| D8 | banliyö, **10 km / ~55°** | −7 … −10 dB | çoğunlukla (ara sıra NLOS düşüşü) |
+| D2 | kentsel, **35 km / ~27°** | LOS −11, NLOS −40…−50 | ~%50 (LOS'ta çalışır) |
+| **D11** | **yoğun kentsel, 35 km / ~27°** | LOS −11.6, NLOS **−27…−65** | **~%0** |
+
+**Yorum**
+
+Yoğun kentsel + düşük yükseklik açısı **kullanılamaz bir senaryo** — fiziksel
+olarak tamamen beklenen: yoğun kentsel kanyonda, çoğunlukla NLOS, HAPS'a 44 km
+eğik mesafe, +29 dB clutter kaybı ve 12 dB'ye varan gölgeleme. Bir el terminali
+için imkânsız. Nadir LOS çekimi bile (netgain −11.6) senkron marjının tam
+sınırında — Deney 2'nin kentsel-LOS'u −11.0'da bağlanmıştı, bu −11.6'da
+(48 sn'de) bağlanamadı, yani sınırda/flaky.
+
+**Sonuç**: ✅ Hipotez doğrulandı ve aşıldı — yoğun kentsel + düşük açı, Deney 2'nin
+kısmi başarısından **tam başarısızlığa** geçiyor. Kanal modeli TR 38.811'in
+en zorlu köşesini doğru şekilde "çalışmaz" olarak modelliyor.
