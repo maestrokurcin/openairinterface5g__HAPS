@@ -283,61 +283,55 @@ Beklenmedik bir şey varsa: neden olabilir, hangi dosyaya bakılmalı?>
 
 <!-- Yeni deneyler buraya, kronolojik sırayla eklenir. En yenisi en altta. -->
 
-### Deney 1 — Kırsal/banliyö → Kentsel
+### Deney 1 — Kırsal/banliyö → Kentsel (düzeltilmiş kalibrasyon, 2026-09-01)
 
-> ⚠️ **Bu deney taşmalı kalibrasyonla koşuldu (Adım 40 öncesi)** — aşağıdaki SINR /
-> HARQ / retransmit rakamları o yüzden güvenilmez. Adım 39 + 40 düzeltmesinden
-> sonra Deney 1 (kentsel zenit) temiz bağlanıyor, netgain ~−7 dB, 0 retransmit.
-> Ayrıntılı yeniden koşum bekliyor. Sonuçlar aşağıda tarihsel kayıt olarak duruyor.
-
-- **Tarih**: 2026-09-01
 - **Değişen tek şey**: kanal senaryosu `SUBURBAN_RURAL` → `URBAN`
-  (config çifti `..._38811.conf` → `..._38811_urban.conf`)
+  (config çifti `..._38811.conf` → `..._38811_urban.conf`), zenit (ground offset yok)
 - **Beklenti**: kentsel clutter/gölgeleme daha fazla → sinyal kötüleşir
-- **Süre**: ~90 sn, trafik yok (baz senaryoyla aynı kurulum)
+- **Süre**: 1×90 sn + 2×25 sn (SF varyansı için), trafik yok
+- **Kalibrasyon**: Adım 39 + 40 sonrası (donmuş SF/LOS-NLOS, referans-göreli netgain)
 
 **Kısaca ne oldu**
 
-Bağlantı yine ilk denemede kuruldu ve 90 saniye boyunca hiç kopmadı — ama
-**kanal gözle görülür şekilde kötüleşti**. Sinyal kalitesi (SINR) ortalama
-~4 dB düştü ve dipleri çok daha derinleşti. Yük binası tarafında (uplink) baz
-senaryoda hiç olmayan yeniden iletimler başladı. Yine de hata düzeltme (HARQ)
-bunları toparladığı için veri hata oranı (BLER) sıfıra yakın kaldı.
+3 koşunun 3'ünde de LOS çekildi (`los_prob[urban,90°] = 0.968` — beklenen) ve
+link **temiz bağlandı**: ilk RA denemesi, 0 kopma, 0 yeniden iletim, BLER ≈ 0 —
+baz senaryoyla (banliyö zenit) pratikte aynı sağlık. Tek fark: **netgain'in
+koşudan koşuya değişkenliği arttı** (−4.3 … −7.0 dB, baz senaryo ~−6'da sıkı),
+çünkü kentsel LOS gölge-sönümleme sigması 4.0 dB, banliyönün 0.72 dB'sine karşı.
 
 **Rakamlar**
 
-| Metrik | Baz (banliyö) | Deney 1 (kentsel) | Yön |
-|---|---|---|---|
-| DL SINR — medyan | +0.4 dB | **−3.5 dB** | ~4 dB kötü |
-| DL SINR — en kötü dip | −16.6 dB | **−23 dB** | daha derin fade |
-| DL SINR — en iyi | +12.0 dB | +11.1 dB | ≈ aynı |
-| gNB PUSCH SNR dipleri | ~16 dB'de kararlı | **1–14 dB arası** iniyor | çok daha oynak |
-| UL HARQ yeniden iletim | 0 | **9** (`930/7/2/0`) | yeni |
-| DL HARQ yeniden iletim | 0 | 0 (`94/0/0/0`) | değişmedi |
-| DL / UL BLER | ≈0 / 0 | ≈0 / 0 | değişmedi |
-| Ortalama yol kaybı (`net ploss_dB`) | ~30 | ~30 | ≈ aynı |
-| RA / RRC | ilk denemede ✅ | ilk denemede ✅ | değişmedi |
-| Kopma (~90 sn) | 0 | 0 | değişmedi |
-| Tek-yön gecikme / Doppler | 0.067 ms / 21 Hz | 0.068 ms / 22 Hz | ≈ aynı |
+| Metrik | Baz (banliyö zenit) | Deney 1 (kentsel zenit), 3 koşu |
+|---|---|---|
+| LOS/NLOS (donmuş) | LOS | LOS / LOS / LOS |
+| netgain | ≈ −5.7 dB (sıkı) | **−6.7 / −4.3 / −7.0 dB** (σ_SF=4 dB yüzünden yayvan) |
+| `PLb` | ~126 dB | 124.6 … 127.3 dB |
+| RA / RRC | ilk denemede ✅ | ilk denemede ✅ (3/3) |
+| Kopma / out-of-sync | 0 | 0 (3/3) |
+| DL / UL HARQ | 78/0/0/0 · 765/0/0/0 | ~38/0/0/0 · ~370/0/0/0 — **0 yeniden iletim** |
+| DL / UL BLER | ≈0 / 0 | ≈0 / 0 |
+| gNB PUSCH SNR | ~17.2 dB | ~17.1 dB |
+| DL SINR (UE) | +39.8 (CQI tavanı) | +39.8 (CQI tavanı) — ayırt edici değil |
+| Gecikme / Doppler | 0.067 ms / 21 Hz | 0.068 ms / 12 Hz | 
 
 **Neden böyle**
 
-Zenit yakınında (yükseklik açısı ~90°) TR 38.811'de kentsel ile banliyönün
-**ortalama** yol kaybı farkı küçük — bu yüzden `net ploss_dB` ortalaması
-neredeyse değişmedi. Asıl fark **gölgeleme ve küçük-ölçekli sönümlemenin
-varyansında**: kentsel senaryoda fade'ler daha derin ve daha sık, bu da SINR
-medyanını aşağı çekiyor ve PUSCH SNR'ı ara ara kod hızı marjının altına
-düşürüp UL yeniden iletimlerini tetikliyor.
+Zenitte (yükseklik açısı 90°) kentsel LOS olasılığı çok yüksek (0.968), NLOS
+neredeyse hiç çekilmiyor — ve **clutter kaybı sadece NLOS'ta var**. Yani
+zenitte kentselin banliyöye göre tek cezası clutter değil, **daha geniş
+gölgeleme varyansı** (σ_SF 4.0 vs 0.72 dB). Bu da netgain'i sistematik olarak
+düşürmüyor, koşu-başına daha geniş bir aralığa yayıyor. TR 38.811 fiziğiyle
+tutarlı: yüksek yükseklik açısında kentsel vs banliyö farkı **ortalama yol
+kaybında değil, gölgeleme varyansında**.
 
-**Yan gözlem**: bir kez, mevcut bağlantıdan bağımsız, başıboş bir RA denemesi
-(RNTI a932, ~27 km sahte mesafe tahmini) Msg3'te başarısız oldu. Mevcut
-bağlantıyı etkilemedi; kentseldeki derin fade'lerin yanlış PRACH tetiklemesini
-kolaylaştırdığı tahmin ediliyor — takip edilecek bir bug değil.
+**Eski (taşmalı kalibrasyon) koşusuyla fark**: O koşu "medyan SINR −3.5 dB,
+9 UL yeniden iletim, başıboş RA hatası" gösteriyordu — hepsi Adım 39/40
+bug'larının artefaktıydı (saniyede-bir NLOS-flip → anlık +25 dB clutter, +
+int16 sarma). Düzeltmeyle tamamen kayboldu.
 
-**Sonuç**: ✅ Hipotez doğrulandı — kentsel senaryo sinyali kötüleştiriyor, ama
-ortalama yol kaybından çok **sönümleme derinliği/sıklığı** üzerinden. Daha
-büyük bir fark görmek için düşük yükseklik açısı (`HAPS_GROUND_OFFSET_M`) ile
-birlikte denendi → Deney 2.
+**Sonuç**: ✅ Hipotez kısmen doğrulandı — kentsel, sinyali *sistematik* olarak
+kötüleştirmiyor (zenitte); etkisi **gölgeleme belirsizliğinin artması**. Gerçek
+kötüleşme kentsel + düşük yükseklik açısında (NLOS + clutter) görülüyor → Deney 2.
 
 ---
 
