@@ -594,3 +594,49 @@ ara sıra outlier UL BLER episodu (Deney 4 takibine bakın).
 **Sonuç**: ✅ Hipotez (birikme) **çürütüldü** — kentsel zenit, hızlı-fade UL
 BLER'ini kötüleştirmiyor. Kentselin küçük-ölçek kanalı zenit LOS'ta banliyöyle
 aynı; fark sadece büyük-ölçek gölgeleme belirsizliğinde ve o da linki bozmuyor.
+
+---
+
+### Deney 6 — Alternatif NTN-TDL profili (A/C → B/D)
+
+- **Tarih**: 2026-09-01
+- **Değişen tek şey**: `HAPS_TDL_USE_ALT_PROFILE=1` — NTN-TDL küçük-ölçekli
+  sönümleme profili varsayılan A/C yerine B/D. Baz senaryo LOS çektiği için
+  fiili değişim **NTN-TDL-C → NTN-TDL-D**.
+- **Profil farkı** (`haps_tdl.c`, TR 38.811 Tablo 6.9.2-3/4):
+  - TDL-C: 2 tap, tap-0 Ricean **K = 10.224 dB**, tap-1 −23.4 dB (norm. gecikme 14.8)
+  - TDL-D: 3 tap, tap-0 Ricean **K = 11.707 dB** (daha güçlü specular), tap-1/2
+    −9.9/−16.8 dB (norm. gecikme 0.56 / 7.33)
+  - İkisi de toplam güç 1'e (0 dB) normalize
+- **Beklenti**: K-faktörü ve echo yapısı farklı → BLER profili biraz değişebilir;
+  TDL-D'nin K'sı daha yüksek olduğu için (daha az fade derinliği) belki hafif *daha iyi*
+- **Süre**: 3 alt-profil + 2 varsayılan-profil koşusu, ~55 sn her biri, trafik yok
+
+**Sonuç**
+
+| Profil | UL BLER medyan / mean | UL yeniden iletim | DL BLER medyan | DL BLER mean |
+|---|---|---|---|---|
+| **TDL-D** (alt) — 3 koşu | 0 / %0.2–0.4 | 0 (3/3) | %1.0 / %2.8 / %2.1 | ~%2.9 |
+| **TDL-C** (varsayılan) — 2 koşu | 0 / %0.2 | 0 (2/2) | %0.8 / %0.9 | ~%2.0 |
+| Kopma | — | 0 (5/5) | — | — |
+| DS (delay spread) | 5.4 ns | — | 5.4 ns | — |
+
+**Yorum**
+
+**Anlamlı fark yok.** UL tarafı iki profilde de birebir temiz (0 / ~%0.2).
+DL BLER'de TDL-D biraz daha yüksek medyan gösteriyor (%1–3 vs %0.8–0.9) ama
+mean'ler benzer (~%2–3) ve koşu-içi varyansın altında — istatistiksel olarak
+ayırt edilemez.
+
+Neden: her iki profil de birim güce normalize; TDL-D'nin daha yüksek K-faktörü
+(daha az fade) teoride *daha iyi* olmalı, *daha kötü* değil — yani gözlenen
+küçük DL BLER farkı gerçek bir kötüleşme değil, echo gecikme yapısının biraz
+farklı frekans-seçiciliği + RNG gürültüsü. DS her ikisinde de 5.4 ns, örnekleme
+periyodunun (~65 ns CP) çok altında → frekans-seçiciliği ihmal edilebilir.
+Referans linkin devasa SINR marjı da profil farkını yutuyor.
+
+**Sonuç**: ✅/⚪ Hipotez büyük ölçüde çürütüldü — A/C ↔ B/D profil değişimi, bu
+senaryoda (zenit LOS, geniş marj) gözlemlenebilir bir etki yaratmıyor. B/D
+profili, model destekliyor ama karşılaştırmada A/C ile denk. Fark ancak marjı
+dar bir senaryoda (düşük yükseklik açısı LOS, ya da yüksek MCS'li gerçek trafik)
+görünebilir.
