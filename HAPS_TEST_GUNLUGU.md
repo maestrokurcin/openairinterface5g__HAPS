@@ -445,3 +445,38 @@ temiz metrik.
 
 **Sonuç**: ✅ Bug düzeltildi (Adım 39 + 40). Hipotez artık **doğrulanıyor** —
 düşük yükseklik açısı + kentsel NLOS, linki (çoğu zaman tamamen) bozuyor.
+
+---
+
+### Deney 3 — Yağmur (25 mm/h), S-bandı
+
+- **Tarih**: 2026-09-01
+- **Değişen tek şey**: `HAPS_RAIN_RATE_MM_H=25` eklendi (baz senaryoya — banliyö
+  zenit, band 254 ≈ 2.49 GHz)
+- **Beklenti**: S-bandında yağmur sönümlemesi ihmal edilebilir (ITU-R P.618/P.838:
+  yağmur kaybı ~f²–f²·⁵ ile ölçeklenir, 2.5 GHz'de 20 GHz'e göre ~1000× küçük)
+- **Süre**: ~85 sn, trafik yok, Adım 39+40 kalibrasyonu
+
+**Sonuç**
+
+| Metrik | Baz (yağmursuz) | Deney 3 (25 mm/h) |
+|---|---|---|
+| **yağmur terimi** (`HAPS_DEBUG_38811`) | 0.000 dB | **0.013 dB** |
+| netgain | ≈ −5.7 dB | −6.1 dB (fark SF çekimi kaynaklı, yağmur değil) |
+| RA / RRC / kopma | ✅ / ✅ / 0 | ✅ / ✅ / 0 |
+| DL / UL HARQ | temiz | temiz (0 yeniden iletim) |
+| PUSCH SNR / DL SINR | ~17.2 / +39.8 | ~17.4 / +39.8 |
+
+**Yorum**
+
+25 mm/h "orta-şiddetli" yağmur, 2.49 GHz'de **0.013 dB** ek kayıp ekliyor —
+ölçüm gürültüsünün altında, hiçbir gözlemlenebilir etkisi yok. Model doğru
+davranıyor: ITU-R P.838 k/alpha katsayıları S-bandında çok küçük.
+
+Bir **Ka-bandı** HAPS senaryosunda (model destekliyor, `HAPS_38811_S_VS_KA_THRESHOLD_GHZ = 6 GHz`)
+aynı yağmur oranı ~birkaç dB kayıp verirdi ve fark net görülürdü — ama test
+paketinde Ka-bandı config'i yok (hepsi band 254/78, S-bandı). Ka senaryosu
+eklenirse bu deney orada anlamlı olur.
+
+**Sonuç**: ✅ Hipotez doğrulandı — S-bandında yağmurun etkisi yok (0.013 dB).
+Yağmur, yalnızca Ka-bandı için anlamlı bir değişken.
