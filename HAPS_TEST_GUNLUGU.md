@@ -33,6 +33,12 @@ Diğer dokümanlarla ilişkisi:
 6. **Kod/config kalıcı olarak değiştiyse** (env var değil, dosya düzenlemesi),
    bu bir *geliştirme adımıdır* — `HAPS_GELISTIRME_GUNLUGU.md`'ye de `### Adım N`
    olarak eklenir, sadece buraya değil.
+7. **Stokastik/küçük-ölçekli etkiler için 3+ koşu.** Sönümleme gerçekleşimi ve
+   donmuş gölge-sönümleme/LOS-NLOS çekimi koşu başına farklı (RNG
+   `/dev/urandom`'dan). Tek bir 90 sn'lik koşu yanıltıcı outlier verebilir
+   (bkz. Deney 4). Hızlı fade, gölgeleme, LOS/NLOS-sınırı gibi şeyler için en az
+   3 koşu yap, dağılımı raporla. Büyük-ölçek deterministik etkiler (yağmur,
+   sabit yükseklik açısı, MIMO stream sayısı) için tek koşu yeterli.
 
 ---
 
@@ -521,10 +527,70 @@ NTN-TDL sönümlemesi ~1 ms'lik HARQ gidiş-dönüşü içinde dekorele oluyor. 
 - **Bağlantı kopmuyor**: HARQ her şeyi toparlıyor (`ulsch_errors 0`,
   `dlsch_errors 0`), 90 sn boyunca 0 out-of-sync.
 
-Bu, bir değişkenin **güvenilir bir metriği** (UL BLER + HARQ dağılımı) net
-şekilde oynatan ilk deney — SINR'ın CQI tavanında raillenmesi bu ölçümü
-gölgelemiyor çünkü etki HARQ katmanında görünüyor.
+**Sonuç (tek koşu)**: hızlı UE → hızlı fade → UL BLER 0 → ~%10, ~62 yeniden
+iletim. Link ayakta (HARQ toparlıyor), DL marjı yüksek olduğu için DL etkilenmiyor.
 
-**Sonuç**: ✅ Hipotez doğrulandı — hızlı UE → hızlı fade → UL BLER 0 → ~%10,
-~62 yeniden iletim. Link ayakta kalıyor (HARQ toparlıyor), DL marjı yüksek
-olduğu için DL neredeyse etkilenmiyor.
+#### ⚠️ Çok-koşumlu takip (Deney 5 ile birlikte, aynı gün) — headline düzeltmesi
+
+`HAPS_UE_SPEED_MPS=30` ile **6 koşu** yapıldı (3 banliyö + 3 kentsel):
+
+| Koşu | UL BLER medyan / mean | UL yeniden iletim | Kopma |
+|---|---|---|---|
+| Deney 4 (banliyö) #1 | %9.5 / %10.5 | ~62 (`573/56/5/1`) | 0 |
+| banliyö #2, #3 | %0 / ~%0.3 | 0 | 0 |
+| kentsel #1, #2, #3 (Deney 5) | %0 / ~%0.3 | 0 | 0 |
+
+**6 koşunun 5'i temiz** (UL BLER <%1, 0 yeniden iletim). Deney 4 #1'deki %10
+sürekli UL BLER episodu bir **outlier** — sönümleme gerçekleşimi koşu başına
+farklı (RNG `/dev/urandom`'dan), 90 sn'lik pencerede aktif UL yükü sırasında
+kötü bir derin-fade kümesine denk gelmek şans işi.
+
+**Düzeltilmiş sonuç**: ⚠️ Hızlı UE (108 km/h, `fd_local` 7 → 249 Hz), referans
+linkin devasa SINR marjı yüzünden **çoğu zaman gözlemlenebilir etki yaratmıyor**.
+Ara sıra (~6 koşuda 1) bir sönümleme gerçekleşimi sürekli bir UL BLER episodu
+(~%10, onlarca HARQ yeniden iletimi) tetikliyor — ama asla kopma yok. Banliyö vs
+kentsel: fark yok.
+
+**Metodoloji dersi** (Bölüm 1'e de eklendi): küçük-ölçekli/stokastik etkiler için
+tek 90 sn'lik koşu yanıltıcı outlier verebilir — bu tür deneylerde 3+ koşu şart.
+
+---
+
+### Deney 5 — Hızlı UE (108 km/h) + kentsel zenit
+
+- **Tarih**: 2026-09-01
+- **Değişen (Deney 4'e göre)**: senaryo `SUBURBAN_RURAL` → `URBAN`
+  (`HAPS_UE_SPEED_MPS=30` sabit, zenit, ground offset yok)
+- **Referans**: Deney 4 (hızlı UE, banliyö zenit)
+- **Soru**: Deney 1 (kentsel) + Deney 4 (hızlı fade) etkileri birikir mi? Yani
+  kentselin daha geniş gölgeleme varyansı, hızlı fade'in UL BLER'ini kötüleştirir mi?
+- **Süre**: 1×90 sn + 2×55 sn, trafik yok, Adım 39+40 kalibrasyonu
+
+**Sonuç** (3 koşu, hepsi LOS çekti — `los_prob[urban,90°]=0.968`):
+
+| Metrik | Deney 4 (hızlı, banliyö) | Deney 5 (hızlı, kentsel) |
+|---|---|---|
+| `fd_local` | 249 Hz | 249 Hz (aynı — sadece UE hızına bağlı) |
+| TDL profili / DS | NTN-TDL-C / ~5.4 ns | NTN-TDL-C / **~4.5 ns** (kentsel biraz daha az) |
+| netgain | ~−5.7 dB | **~−6.9 dB** (kentsel σ_SF=4 dB, donmuş çekim) |
+| RA / RRC / kopma | ✅ / ✅ / 0 | ✅ / ✅ / 0 (3/3) |
+| UL BLER (3 koşu) | %0 / ~%0.3 (1 outlier hariç) | **%0 / ~%0.3** (3/3 temiz) |
+| UL yeniden iletim | 0 (1 outlier hariç) | **0** (3/3) |
+| DL BLER | ~%0 | ~%1.5 (marj bol) |
+
+**Yorum**
+
+Etkiler **birikmiyor**. Kentsel zenit LOS'ta:
+- Küçük-ölçekli sönümleme banliyöyle neredeyse aynı — DS 4.5 vs 5.4 ns, ikisi de
+  örnekleme periyodunun (~65 ns CP) çok altında, frekans-seçiciliği ihmal
+  edilebilir. `fd_local` yalnızca UE hızına bağlı, senaryodan bağımsız.
+- Kentselin tek farkı ~1 dB daha düşük netgain (daha geniş gölgeleme çekimi) —
+  ama referans linkin marjı o kadar büyük ki bu UL BLER'e yansımıyor.
+- Clutter kaybı yalnızca NLOS'ta; zenitte LOS olasılığı 0.968 → clutter devrede değil.
+
+Yani "kentsel + hızlı UE" ≈ "banliyö + hızlı UE": ikisi de çoğu zaman temiz,
+ara sıra outlier UL BLER episodu (Deney 4 takibine bakın).
+
+**Sonuç**: ✅ Hipotez (birikme) **çürütüldü** — kentsel zenit, hızlı-fade UL
+BLER'ini kötüleştirmiyor. Kentselin küçük-ölçek kanalı zenit LOS'ta banliyöyle
+aynı; fark sadece büyük-ölçek gölgeleme belirsizliğinde ve o da linki bozmuyor.
