@@ -757,3 +757,48 @@ netgain kademeli düşüyor ve link çalışıyor, ama **tek yönlü şanssız b
 Bu, ara-mesafe senaryolarının "kısmen çalışıyor" değil "çoğunlukla çalışıyor,
 ara sıra tamamen düşüyor" şeklinde davrandığını gösteriyor — gerçek NTN
 sistemlerinde de düşük-orta yükseklik açılarında beklenen bir davranış.
+
+---
+
+### Deney 9 — Alternatif NTN-TDL profili + kentsel zenit
+
+- **Tarih**: 2026-09-01
+- **Değişen (Deney 6'ya göre)**: senaryo `SUBURBAN_RURAL` → `URBAN`
+  (`HAPS_TDL_USE_ALT_PROFILE=1` sabit, zenit)
+- **Soru**: kentselin daha geniş SF varyansı + alt profil (B/D) birlikte
+  gözlemlenebilir bir etki yaratır mı?
+- **Süre**: 5 koşu (kural 7), 45-95 sn
+
+**Sonuç**
+
+| Koşu | Durum | netgain | Senkron | UL BLER |
+|---|---|---|---|---|
+| #1 | (debug'sız, teyit edilemedi) | — | ❌ 55 sn'de olmadı | — |
+| #2 | **NLOS** (TDL-B log satırıyla teyitli) | — | ❌ 55 sn'de olmadı | — |
+| #3 | LOS | −7.85 dB | ✅ (74 synch-fail sonrası) | %0.14 |
+| #4 | LOS | −5.72 dB | ✅ (67 synch-fail sonrası) | %0.53 |
+| #5 | LOS | −4.98 dB | ✅ (81 synch-fail sonrası) | %0.32 |
+
+**Yorum**
+
+`HAPS_TDL_USE_ALT_PROFILE`, `is_los` çekimini **etkilemiyor** (kodda bağımsız —
+profil seçimi yalnızca LOS/NLOS zaten belirlendikten sonra hangi tap
+tablosunun kullanılacağını seçiyor). Yani gözlenen 2/5 "NLOS-vari" sonuç
+alt-profile'a özgü değil, urban zenit'in kendi LOS olasılığından
+(`los_prob[urban,90°]=0.968`, iki bağımsız yön için "en az biri NLOS" ~%6.3)
+kaynaklanan normal örnekleme değişkenliği — 5 koşuda 2 kez görmek beklenenden
+yüksek ama küçük örneklemde olası (~%3 olasılıklı, imkânsız değil).
+
+**LOS koşularında** (3/5) sonuç **Deney 1 ve Deney 6 ile birebir tutarlı**:
+netgain −5…−8 dB, temiz bağlantı, UL BLER <%1, 0 yeniden iletim — alt profilin
+(TDL-D) burada da gözlemlenebilir bir etkisi yok.
+
+**NLOS koşularında** (2/5) link **Deney 8'deki mekanizmayla** başarısız oluyor
+(clutter kaybı + geniş SF → netgain çok düşük, DL senkronu kurulamıyor) —
+profille ilgisi yok, geometri/LOS-durumuyla ilgili.
+
+**Sonuç**: ⚪ Hipotez (profil × senaryo etkileşimi) çürütüldü — alt TDL profili
+ile kentsel senaryo arasında bir etkileşim yok. Gözlenen değişkenlik tamamen
+LOS/NLOS çekiminden (Deney 8'de zaten karakterize edilen mekanizma); profil
+seçimi (A/C vs B/D) hiçbir koşulda fark yaratmadı (Deney 6'nın sonucunu
+kentsel için de doğruluyor).
