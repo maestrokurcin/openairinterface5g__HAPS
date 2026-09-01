@@ -3230,3 +3230,38 @@ güvenli, niteliksel inversiyonu çözen değer.
 açısında `los_prob[urban] ≈ 0.49` → koşu başına ~yazı-tura. Bu fiziksel olarak
 doğru: kentsel ortamda 27°'de platforma görüş hattın olup olmaması gerçekten
 ~50/50 ve linki gerçekten yapar/bozar.
+
+---
+
+### Adım 41 — O2I bina girişi kaybı da donmuyordu (Adım 39'un aynı bug'ı, O2I'de)
+
+**Belirti (Test Günlüğü Deney 7)**: `HAPS_O2I_ENABLE=1` ile `HAPS_DEBUG_O2I=1`
+çıktısında ardışık saniyelerde O2I kaybı 5 … 56 dB arası zıplıyordu.
+
+**Kök neden**: `haps_o2i_entry_loss_dB()` (`haps_o2i.c`), `haps_38811_path_loss_dB()`
+tarafından saniyede bir çağrılıyor ve **her çağrıda** taze bir ITU-R P.2109
+persentil çekimi (`uniformrandom()`) yapıyordu. Bu, Adım 39'da gölge sönümleme
+ve LOS/NLOS için düzeltilen bug'ın **aynısı**: O2I giriş kaybı hangi bina/duvar/
+kat'a bağlı per-link bir büyüklük, sabit UE için bağlantı ömrü boyunca sabit
+olmalı — Adım 39'un yorumcusu bunu (yanlışlıkla) "per-call bir örnekleme,
+saniyede bir çekmek doğru" diye savunuyordu; aslında SF ile aynı sınıf hata.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/sim.h`
+`~ Değiştirildi:` `haps_channel_ctx_t`'ye `double o2i_atten_dB;` eklendi;
+`large_scale_drawn`'ın yorumu O2I'yi de kapsayacak şekilde güncellendi.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_propagation.c`
+`~ Değiştirildi:` `haps_o2i_entry_loss_dB()` çağrısı, `is_los`/`shadow_fading_dB`
+ile aynı `if (!ctx->large_scale_drawn)` bloğunun içine taşındı — artık bağlantı
+başına bir kez çekilip `ctx->o2i_atten_dB`'de donuyor.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_o2i.c`
+`~ Değiştirildi:` yanlış yönlendiren fonksiyon yorumu ("per-call örnekleme doğru")
+düzeltildi — artık çağıranın bunu bir kez çağırıp dondurduğunu belirtiyor.
+
+**Doğrulama**: `HAPS_O2I_ENABLE=1` ile 3 koşu — her koşuda `netgain` artık
+**tam sabit** (örn. `-52.1 .. -52.1`, önceden saniyede bir değişiyordu).
+Regresyon: O2I kapalıyken baz senaryo etkilenmedi (RRC bağlanıyor, temiz).
+
+**Sonuç**: Bug düzeltildi. Deney 7 yeniden koşuldu (bkz. Test Günlüğü) — sonuç
+yönü değişmedi (O2I linki bozuyor) ama artık her koşu içinde tutarlı/gürültüsüz.

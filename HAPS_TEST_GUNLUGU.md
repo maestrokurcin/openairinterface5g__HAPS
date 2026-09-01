@@ -680,6 +680,38 @@ görünebilir.
      Yine de düzeltilmeli — O2I'nin marjinal etkili olabileceği bir senaryoda
      (Ka-bant değil, daha küçük giriş kaybı) yanıltıcı olur.
 
-**Sonuç**: ✅ Hipotez doğrulandı — O2I linki bozuyor (indoor el terminali + HAPS
-= çalışmaz). Ayrıca O2I'nin per-saniye yeniden çekilme bug'ı tespit edildi
-(Adım 41 adayı — Adım 39'un O2I'ye uygulanmamış hali).
+**Sonuç (ilk koşu, düzeltmeden önce)**: ✅ Hipotez doğrulandı — O2I linki
+bozuyor. Ayrıca O2I'nin per-saniye yeniden çekilme bug'ı tespit edildi.
+
+---
+
+#### O2I bug'ı DÜZELTİLDİ (2026-09-01, Geliştirme Günlüğü Adım 41) + Deney 7 yeniden koşuldu
+
+`haps_o2i_entry_loss_dB()` artık `is_los`/`shadow_fading_dB` ile aynı
+`large_scale_drawn` guard'ı altında — bağlantı başına **bir kez** çekilip
+donuyor (Adım 39'un O2I'ye uygulanması).
+
+**Doğrulama**: `HAPS_DEBUG_38811=1` çıktısında `netgain` artık her koşu içinde
+**tam sabit** (örn. `-52.1 .. -52.1`), önceden saniyede bir değişiyordu.
+Regresyon: O2I kapalıyken baz senaryo etkilenmedi.
+
+**Deney 7 — düzeltme sonrası, 3 koşu**:
+
+| Koşu | O2I çekimi (donmuş, tek değer) | netgain (sabit) | Sonuç |
+|---|---|---|---|
+| #1 | 45.4 dB | −52.1 dB | ❌ bağlanamıyor |
+| #2 | 46.6 dB | −52.1 dB | ❌ bağlanamıyor |
+| #3 | 13.2 dB (en düşük gözlenen çekim) | **−19.4 dB** | ❌ bağlanamıyor |
+
+**Yorum**: 3/3 koşu, O2I'nin çekilen değeri ne olursa olsun (13 … 47 dB) link
+kuramadı. Bu, düzeltmeden önceki sonuçtan daha **kesin**: eski (buglı) koşularda
+en düşük ~5 dB'lik anlık çekimler bazen sync'e izin veriyor olabilirdi (saniyede
+bir "iyi" bir ana denk gelmek), ama artık her koşu **tek, sabit** bir O2I
+gerçekleşimiyle test ediliyor ve gözlenen en hafif çekim (13.2 dB) bile
+yetersiz kalıyor. Bu, referans linkin senkron için gereken marjının Deney 2'de
+tahmin edilenden (−11 dB'de çalışıyor) daha dar olduğunu gösteriyor — başarısızlık
+eşiği −11 ile −19 dB arasında bir yerde, ilk kez bu kadar dar sınırlandı.
+
+**Sonuç**: ✅ Bug düzeltildi (Adım 41), hipotez **hâlâ doğrulanıyor** ve artık
+daha güvenilir: O2I açıkken (herhangi bir gerçekçi çekim seviyesinde) bu
+senaryoda link kurulamıyor.
