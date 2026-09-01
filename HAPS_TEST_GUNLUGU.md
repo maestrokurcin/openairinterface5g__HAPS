@@ -1102,3 +1102,52 @@ arası fark iki yerden geliyor: (a) LOS gölge-sönümleme belirsizliği
 (banliyö ±1 → kentsel ±8 → yoğun kentsel ±3 dB), (b) LOS olasılığının açıyla
 düşme hızı (banliyö çok yavaş, yoğun kentsel çok hızlı). Düşük açıda pratik
 kullanılabilirlik tamamen (b) tarafından belirleniyor.
+
+---
+
+### Deney 16 — UE hareketsiz (`HAPS_UE_SPEED_MPS=0`)
+
+- **Tarih**: 2026-09-01
+- **Değişen tek şey**: `HAPS_UE_SPEED_MPS=0` — yerel-saçılma Doppler'i tamamen 0
+- **Amaç**: sönümleme donunca BLER tamamen sıfırlanır mı?
+- **Süre**: 5 koşu, ~55-60 sn, `HAPS_DEBUG_TDL=1` / `HAPS_DEBUG_38811=1`
+
+**Sonuç**
+
+| Koşu | Durum | netgain | tap_energy | Sonuç | UL BLER |
+|---|---|---|---|---|---|
+| #1 | NLOS (bir yön) | −33.3 | **0.0** (NLOS yön) | ❌ bağlanamıyor | — |
+| #2 | LOS | −6.1 | 0.455 | ✅ | %0.34 |
+| #3 | LOS | −7.4 | 0.455 | ❌ (55 sn'de olmadı) | — |
+| #4 | LOS | −4.9 | — | ✅ | %0.21 |
+| #5 | LOS | −5.7 | — | ✅ | %0.21 |
+
+**Cevap**: Hayır — BLER ~%0.2'de kalıyor, hareketli durumla (Deney 10) aynı.
+Çünkü baz senaryonun kalıntı BLER'i sönümleme kaynaklı değil — MCS-0'ın
+gürültü tabanındaki decode hataları + trafik yokluğu. Fade'i dondurmak
+buna yardım etmiyor.
+
+**⚠️ YENİ BUG bulundu — `HAPS_UE_SPEED_MPS=0` + NLOS = ölü kanal**
+
+`fd_local = ue_speed · fc / c = 0` → `rho = exp(0) = 1` → `innov_scale =
+sqrt(1−1) = 0` → NTN-TDL AR(1) sönümleme durumu (`ctx->tdl_state`, calloc ile
+**0**'dan başlıyor) hiçbir zaman inovasyon almıyor, 0'da kalıyor. Sonuç:
+- **NLOS profili (TDL-A/B, tüm taplar Rayleigh)**: `gain = tap_amp · (0 + 1·0) = 0`
+  → bütün taplar **tam olarak sıfır** → `tap_energy = 0.0` (run #1'de doğrulandı)
+  → kanal hiç sinyal geçirmiyor. "Fade donuyor" değil, "kanal ölüyor".
+- **LOS profili (TDL-C/D, tap 0 Ricean)**: specular bileşen deterministik olduğu
+  için `gain = tap_amp · spec_amp` sağ kalıyor → kanal çalışıyor (sönümlemesiz,
+  sabit specular). Bu yüzden LOS koşuları bağlanabildi.
+
+Katalog `HAPS_UE_SPEED_MPS=0`'ı "sönümlemeyi durdurur" diye tanımlıyor — ama
+NLOS için gerçekte kanalı öldürüyor. Düzeltme: `fd_local ≈ 0` iken AR(1)
+durumunu bir kez geçerli bir birim-varyanslı kompleks Gauss örneğiyle tohumla
+(donmuş ama geçerli bir Rayleigh gerçekleşimi). **Adım 43 adayı.**
+
+**Not — tap_energy 0.455 (1.0 değil)**: kısmen specular oranı (`K/(K+1) ≈ 0.91`),
+kısmen de doğrusal-interpolasyonlu fraksiyonel gecikme bölünmesinin enerji
+korumaması (`(1−frac)² + frac²`, frac=0.5'te 0.5'e düşer) — bu ikincisi tüm
+hızlarda var olan küçük bir kusur, Deney 16'ya özgü değil.
+
+**Sonuç**: ⚪ Hipotez çürütüldü (BLER sıfırlanmıyor) + ⚠️ `HAPS_UE_SPEED_MPS=0`
+NLOS'ta ölü kanal bug'ı bulundu (Adım 43 adayı).
