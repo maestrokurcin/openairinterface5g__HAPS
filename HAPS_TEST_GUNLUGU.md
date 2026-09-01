@@ -1042,3 +1042,63 @@ kentsel/yoğun-kentsel için öngördüğü davranış:
 
 **Sonuç**: ✅ LOS/NLOS çekimi doğrulandı. Düşük-açı senaryolarındaki başarısızlık
 oranları modelin doğru davranışı, TR 38.811 spesifikasyonunun beklediği şey.
+
+---
+
+### Deney 15 — netgain ↔ yükseklik açısı süpürmesi, yoğun kentsel
+
+- **Tarih**: 2026-09-01
+- **Değişen (Deney 12/13'e göre)**: senaryo → `DENSE_URBAN` — süpürme üçlemesini
+  tamamlıyor
+- **Yöntem**: aynı, 7 offset, `HAPS_DEBUG_38811=1`. Her noktada 3-5 koşu
+  (yoğun kentsel LOS olasılığı çok düşük).
+
+**Ölçülen — yoğun kentsel**
+
+| offset | açı | LOS netgain (ort) | LOS aralık | NLOS aralık | FSPL teori | LOS/koşu |
+|---|---|---|---|---|---|---|
+| 0 | 78.7° | −4.7 | −5.7…−4.2 | — | −6.2 | 3/3 |
+| 5 | 65.8° | −8.4 | — | −29 | −6.8 | 2/3 |
+| 10 | 55.0° | −10.8 | −11.2…−10.3 | −20…−47 | −7.7 | 2/5 |
+| 15 | 46.5° | −10.7 | −12.7…−8.7 | −39 | −8.8 | 2/3 |
+| 20 | 39.8° | −11.8 | — | −28…−64 | −9.9 | 1/3 |
+| 25 | 34.6° | (0/3 LOS) | — | −35…−47 | −10.9 | **0/3** |
+| 35 | 27.1° | −11.6 | — | −48…−58 | −12.8 | 1/3 |
+
+**Üç senaryonun karşılaştırması — LOS netgain ≈ FSPL teorisi**
+
+| açı | Banliyö (D12) | Kentsel (D13) | Yoğun kentsel (D15) | FSPL `−6+20log₁₀(sinθ)` |
+|---|---|---|---|---|
+| 79° | −6.6 | −10.2 | −4.7 | −6.2 |
+| 66° | −7.6 | −3.9 | −8.4 | −6.8 |
+| 55° | −7.2 | −2.4 | −10.8 | −7.7 |
+| 47° | −9.8 | −9.4 | −10.7 | −8.8 |
+| 40° | −9.9 | −17.8 | −11.8 | −9.9 |
+| 27° | −12.8 | −10.6 | −11.6 | −12.8 |
+
+**LOS-yakalama oranı (düşük açıda asıl fark)**
+
+| açı | Banliyö | Kentsel | Yoğun kentsel |
+|---|---|---|---|
+| ~55° | ~%94 | çoğunlukla | **2/5** |
+| ~35° | ~%92 | 1/4 | **0/3** |
+| ~27° | ~%92 | 2/4 | 1/3 |
+
+**Yorum**
+
+1. **FSPL omurgası her üç senaryoda aynı**: LOS-ortalama netgain hepsinde
+   `−6 + 20·log₁₀(sin θ)` eğrisini izliyor (±SF çekimi). Yoğun kentsel LOS
+   `sigma_SF` ≈ 2.3–3.5 dB — banliyö (~1) ile kentsel (4) arası.
+2. **LOS olasılığı yoğun kentselde çok daha erken çöküyor**: 55°'de bile
+   yazı-tura, ~35°'nin altında ~%40. Banliyö 10°'ye kadar >%90'da kalıyordu.
+   Bu, Deney 11'in (yoğun kentsel + 27° = 7/8 NLOS, 0/8 bağlanma) neden o kadar
+   sert olduğunu açıklıyor.
+3. **NLOS netgain'i devasa saçılıyor**: −20 … −64 dB tek bir açıda — yoğun
+   kentsel NLOS `sigma_SF` 9–15 dB.
+
+**Sonuç**: ✅ Süpürme üçlemesi tamamlandı. Yükseklik açısı ↔ SNR ilişkisinin
+geometrik kısmı (FSPL) senaryodan bağımsız ve modelde birebir doğru. Senaryolar
+arası fark iki yerden geliyor: (a) LOS gölge-sönümleme belirsizliği
+(banliyö ±1 → kentsel ±8 → yoğun kentsel ±3 dB), (b) LOS olasılığının açıyla
+düşme hızı (banliyö çok yavaş, yoğun kentsel çok hızlı). Düşük açıda pratik
+kullanılabilirlik tamamen (b) tarafından belirleniyor.
