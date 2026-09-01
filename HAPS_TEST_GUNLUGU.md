@@ -275,4 +275,53 @@ Beklenmedik bir şey varsa: neden olabilir, hangi dosyaya bakılmalı?>
 
 <!-- Yeni deneyler buraya, kronolojik sırayla eklenir. En yenisi en altta. -->
 
-_(Henüz deney yok. Baz senaryo Bölüm 3'te kalibre edildi — Deney 1 buradan başlar.)_
+### Deney 1 — Kırsal/banliyö → Kentsel
+
+- **Tarih**: 2026-09-01
+- **Değişen tek şey**: kanal senaryosu `SUBURBAN_RURAL` → `URBAN`
+  (config çifti `..._38811.conf` → `..._38811_urban.conf`)
+- **Beklenti**: kentsel clutter/gölgeleme daha fazla → sinyal kötüleşir
+- **Süre**: ~90 sn, trafik yok (baz senaryoyla aynı kurulum)
+
+**Kısaca ne oldu**
+
+Bağlantı yine ilk denemede kuruldu ve 90 saniye boyunca hiç kopmadı — ama
+**kanal gözle görülür şekilde kötüleşti**. Sinyal kalitesi (SINR) ortalama
+~4 dB düştü ve dipleri çok daha derinleşti. Yük binası tarafında (uplink) baz
+senaryoda hiç olmayan yeniden iletimler başladı. Yine de hata düzeltme (HARQ)
+bunları toparladığı için veri hata oranı (BLER) sıfıra yakın kaldı.
+
+**Rakamlar**
+
+| Metrik | Baz (banliyö) | Deney 1 (kentsel) | Yön |
+|---|---|---|---|
+| DL SINR — medyan | +0.4 dB | **−3.5 dB** | ~4 dB kötü |
+| DL SINR — en kötü dip | −16.6 dB | **−23 dB** | daha derin fade |
+| DL SINR — en iyi | +12.0 dB | +11.1 dB | ≈ aynı |
+| gNB PUSCH SNR dipleri | ~16 dB'de kararlı | **1–14 dB arası** iniyor | çok daha oynak |
+| UL HARQ yeniden iletim | 0 | **9** (`930/7/2/0`) | yeni |
+| DL HARQ yeniden iletim | 0 | 0 (`94/0/0/0`) | değişmedi |
+| DL / UL BLER | ≈0 / 0 | ≈0 / 0 | değişmedi |
+| Ortalama yol kaybı (`net ploss_dB`) | ~30 | ~30 | ≈ aynı |
+| RA / RRC | ilk denemede ✅ | ilk denemede ✅ | değişmedi |
+| Kopma (~90 sn) | 0 | 0 | değişmedi |
+| Tek-yön gecikme / Doppler | 0.067 ms / 21 Hz | 0.068 ms / 22 Hz | ≈ aynı |
+
+**Neden böyle**
+
+Zenit yakınında (yükseklik açısı ~90°) TR 38.811'de kentsel ile banliyönün
+**ortalama** yol kaybı farkı küçük — bu yüzden `net ploss_dB` ortalaması
+neredeyse değişmedi. Asıl fark **gölgeleme ve küçük-ölçekli sönümlemenin
+varyansında**: kentsel senaryoda fade'ler daha derin ve daha sık, bu da SINR
+medyanını aşağı çekiyor ve PUSCH SNR'ı ara ara kod hızı marjının altına
+düşürüp UL yeniden iletimlerini tetikliyor.
+
+**Yan gözlem**: bir kez, mevcut bağlantıdan bağımsız, başıboş bir RA denemesi
+(RNTI a932, ~27 km sahte mesafe tahmini) Msg3'te başarısız oldu. Mevcut
+bağlantıyı etkilemedi; kentseldeki derin fade'lerin yanlış PRACH tetiklemesini
+kolaylaştırdığı tahmin ediliyor — takip edilecek bir bug değil.
+
+**Sonuç**: ✅ Hipotez doğrulandı — kentsel senaryo sinyali kötüleştiriyor, ama
+ortalama yol kaybından çok **sönümleme derinliği/sıklığı** üzerinden. Daha
+büyük bir fark görmek için düşük yükseklik açısı (`HAPS_GROUND_OFFSET_M`) ile
+birlikte denenebilir (Deney 2 adayı).
