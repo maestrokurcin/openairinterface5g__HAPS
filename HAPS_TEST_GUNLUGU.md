@@ -1178,3 +1178,48 @@ değişmedi (LOS koşularında ~%0.2, hareketli durumla aynı — beklenen).
 **Sonuç**: ✅ Bug düzeltildi (Adım 43). Deney 16'nın ana bulgusu (fade'i
 dondurmak BLER'i sıfırlamıyor) geçerli; ek olarak `HAPS_UE_SPEED_MPS=0` artık
 NLOS için de güvenli kullanılabilir bir knob.
+
+---
+
+### Deney 17 — O2I "ısıl verimli" bina sınıfı (`HAPS_O2I_THERMAL=1`)
+
+- **Tarih**: 2026-09-01
+- **Değişen (Deney 7'ye göre)**: `HAPS_O2I_THERMAL=1` eklendi — ITU-R P.2109
+  bina sınıfı "traditional" yerine "thermally-efficient" (metalize/düşük-emisyonlu
+  cam kaplama, RF'yi daha çok engeller). `HAPS_O2I_ENABLE=1` sabit, baz senaryo.
+- **Süre**: 3 tam koşu + 6+6 kısa örnekleme koşusu (donmuş O2I çekimi dağılımı için)
+
+**Ölçülen** (yükseklik açısı ~78.7°, `HAPS_DEBUG_O2I` çıktısı, `-> L=` alanı)
+
+| Bina sınıfı | O2I kaybı örnekleri (dB) | medyan |
+|---|---|---|
+| **traditional** (Deney 7) | 15.5, 16.9, 29.1, 29.2, 30.7, 42.0 | ~29 |
+| **thermally-efficient** (Deney 17) | 38.1, 54.7, 55.2, 57.5, 57.6, 63.8 | ~56 |
+
+Persentil-başına eşleştirme (P.2109 `p` çekimi eşit olmadığı için medyan-medyan
+biraz yanıltıcı, aynı `p`'de karşılaştırma daha net):
+
+| Persentil `p` | traditional L | thermally-efficient L |
+|---|---|---|
+| ~0.08 | ~16 dB | (~28 dB, ekstrapolasyon) |
+| ~0.43 | ~29 dB | ~38 dB (`p=0.32`) |
+| ~0.88 | ~42 dB | ~62 dB (`p=0.90`) |
+
+**3 tam koşu sonucu**: netgain −23 / −37 / −43 dB → **3/3 bağlanamıyor**
+(zaten Deney 7'de traditional da bağlanamıyordu).
+
+**Yorum**
+
+Isıl verimli bina, aynı persentilde traditional'a göre **~10–22 dB daha fazla**
+giriş kaybı ekliyor — kod formülü de bunu doğruluyor: `Lh` (yatay bileşen)
+traditional için 2.49 GHz'de ~14 dB, thermally-efficient için ~28 dB (P.2109
+Tablo 6.6.3-1 katsayıları). Metalize cam kaplama RF'yi gerçekten daha çok
+engelliyor — katalog notu doğru.
+
+Pratik sonuç değişmiyor: O2I zaten (traditional'da bile) linki öldürüyordu;
+ısıl verimli sadece "daha ölü". Bir HAPS'a (20 km) modern enerji-verimli bina
+içinden bağlı el terminali = imkânsız.
+
+**Sonuç**: ✅ Hipotez doğrulandı — `HAPS_O2I_THERMAL=1` giriş kaybını ~2×'e
+çıkarıyor (~29 → ~56 dB medyan). Model P.2109 bina sınıfı ayrımını doğru
+uyguluyor.
