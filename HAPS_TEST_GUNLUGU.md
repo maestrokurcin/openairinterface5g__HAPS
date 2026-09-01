@@ -324,4 +324,74 @@ kolaylaştırdığı tahmin ediliyor — takip edilecek bir bug değil.
 **Sonuç**: ✅ Hipotez doğrulandı — kentsel senaryo sinyali kötüleştiriyor, ama
 ortalama yol kaybından çok **sönümleme derinliği/sıklığı** üzerinden. Daha
 büyük bir fark görmek için düşük yükseklik açısı (`HAPS_GROUND_OFFSET_M`) ile
-birlikte denenebilir (Deney 2 adayı).
+birlikte denendi → Deney 2.
+
+---
+
+### Deney 2 — Kentsel + terminal 35 km uzakta (düşük yükseklik açısı)
+
+- **Tarih**: 2026-09-01
+- **Değişen tek şey**: `HAPS_GROUND_OFFSET_M=35000` eklendi (Deney 1'in kentsel
+  kurulumuna). Terminal, platform izdüşümünden 35 km uzağa taşınıyor.
+- **Beklenti**: yükseklik açısı ~90° → ~27° düşer; eğik mesafe ~20 → ~44 km;
+  NLOS + kentsel clutter kaybı devreye girer → sinyal **çok daha kötü** olmalı,
+  gecikme ve Doppler artmalı.
+- **Süre**: ~90 sn, trafik yok.
+
+**Kısaca ne oldu**
+
+Geometri beklendiği gibi değişti: gecikme iki katına, Doppler 10 katına çıktı.
+Yol kaybının fiziği de doğru hesaplandı — `HAPS_DEBUG_38811` çıktısı yükseklik
+açısını 27°, durumu NLOS, clutter kaybını +29 dB, toplam `PLb`'yi ~166 dB
+gösterdi (zenitte ~126 dB). **Ama sonuç ters çıktı: bağlantı kötüleşeceğine
+_iyileşti_.** SINR medyanı +0.4 → **+15.5 dB** fırladı, uplink yeniden
+iletimleri Deney 1'e göre azaldı (9 → 2), PUSCH SNR yine ~16 dB'de kararlı.
+
+**Rakamlar**
+
+| Metrik | Baz (banliyö, zenit) | Deney 1 (kentsel, zenit) | Deney 2 (kentsel, 35 km) |
+|---|---|---|---|
+| Yükseklik açısı | ~90° | ~90° | **~27°** |
+| Eğik mesafe | ~20 km | ~20 km | **~44 km** |
+| Tek-yön gecikme | 0.067 ms | 0.068 ms | **0.141 ms** |
+| Doppler (SAT→UE) | 21 Hz | 22 Hz | **199 Hz** |
+| Büyük-ölçek yol kaybı `PLb` | ~126 dB | ~128 dB | **~166 dB** (NLOS, CL +29 dB) |
+| DL SINR — medyan | +0.4 dB | −3.5 dB | **+15.5 dB** (?!) |
+| DL SINR — aralık | −16.6…+12.0 | −23…+11 | −17…+39 |
+| gNB PUSCH SNR | ~16 dB kararlı | 1–14 dB oynak | ~16 dB kararlı |
+| UL HARQ yeniden iletim | 0 | 9 | 2 |
+| DL / UL BLER | ≈0 / 0 | ≈0 / 0 | ≈0 / 0 |
+| RA / RRC | ilk denemede ✅ | ilk denemede ✅ | ilk denemede ✅ |
+| Kopma (~90 sn) | 0 | 0 | 0 |
+
+**⚠️ Beklenmedik sonuç — muhtemel bug**
+
+Fizik doğru hesaplanıyor ama sinyale yanlış yansıyor. `PLb` zenite göre ~40 dB
+arttığı halde uygulanan sinyal kazancı **artması gereken yönde değil, azalan
+yönde** değişiyor; net etki bağlantının güçlenmesi oluyor. Delay/Doppler'in
+doğru çıkması, `haps_geometry.c` (geometri/kinematik) yolunun sağlam olduğunu
+gösteriyor — sorun büyük-ölçek yol kaybının **kazanca çevrildiği** yerde.
+
+İncelenecek yer: `openair1/SIMULATION/TOOLS/haps_propagation.c:200` —
+`return eirp_dBW + HAPS_38811_SIM_CALIBRATION_DB - PLb_dB;`. Bu değer
+`channelDesc->path_loss_dB`'ye (bir **kazanç**, negatif = kayıp) atanıyor.
+Zenitte `PLb ≈ 126` → kazanç ≈ `42.99 + 114.93 − 126 ≈ +31 dB`; Deney 2'de
+`PLb ≈ 166` → kazanç ≈ `−8 dB`. Yani düşük kazanç = zayıf sinyal olması
+gerekirken ölçülen SINR tam tersi. Ayrıca `net ploss_dB` logunun ortalaması
+(+12) el hesabıyla (~−4) uyuşmuyor — gölgeleme (`sigma_SF·gaussZiggurat`)
+teriminin ortalaması/işareti ya da `HAPS_38811_SIM_CALIBRATION_DB = 114.93`
+sabitinin yalnızca zenit senaryosuna göre kalibre edilmiş olması şüpheli.
+
+**Sonuç**: ⚠️ Hipotez **çürütüldü** — düşük yükseklik açısı + kentsel, sinyali
+kötüleştirmesi gerekirken iyileştirdi. Geometri/gecikme/Doppler doğru; büyük-
+ölçek yol kaybının sinyal kazancına çevrilmesinde bir işaret/kalibrasyon hatası
+var. Düzeltme yapıldığında `HAPS_GELISTIRME_GUNLUGU.md`'ye adım olarak eklenip
+bu deney yeniden koşulacak.
+
+**Yeniden üretme**
+
+```
+# gNB ve UE komutlarının başına (ikisine de):
+HAPS_GROUND_OFFSET_M=35000  [+ isteğe bağlı HAPS_DEBUG_38811=1]
+# config çifti: gnb.haps_mobile_ntn_38811_urban.conf / nrue.haps_mobile_ntn_38811_urban.conf
+```
