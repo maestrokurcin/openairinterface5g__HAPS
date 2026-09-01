@@ -640,3 +640,46 @@ senaryoda (zenit LOS, geniş marj) gözlemlenebilir bir etki yaratmıyor. B/D
 profili, model destekliyor ama karşılaştırmada A/C ile denk. Fark ancak marjı
 dar bir senaryoda (düşük yükseklik açısı LOS, ya da yüksek MCS'li gerçek trafik)
 görünebilir.
+
+---
+
+### Deney 7 — O2I bina girişi kaybı (`HAPS_O2I_ENABLE=1`)
+
+- **Tarih**: 2026-09-01
+- **Değişen tek şey**: `HAPS_O2I_ENABLE=1` — ITU-R P.2109 bina girişi kaybı
+  (outdoor→indoor). Baz senaryo (banliyö zenit), bina sınıfı "traditional"
+  (varsayılan; `HAPS_O2I_THERMAL=1` daha kötü olurdu).
+- **Beklenti**: sabit ~15-25 dB ek kayıp → link belirgin kötüleşir
+- **Süre**: 3 koşu, ~55-60 sn her biri, `HAPS_DEBUG_38811=1` / `HAPS_DEBUG_O2I=1`
+
+**Sonuç**
+
+| Metrik | Baz (O2I kapalı) | Deney 7 (O2I açık), 3 koşu |
+|---|---|---|
+| O2I kaybı (P.2109) | 0 dB | **medyan ~30 dB, aralık 5 … 56 dB** |
+| netgain | ≈ −6 dB | **medyan ~−37 dB** |
+| RRC bağlantısı | ✅ | ❌ **kurulamıyor** (3/3) — 800–1900 synch-fail |
+
+**Yorum**
+
+1. **Fiziksel sonuç doğru yönde ama sert**: P.2109 "traditional" bina için
+   S-bandında ~30 dB medyan giriş kaybı ekliyor (katalogdaki "~15-25 dB"
+   tahmininden fazla — yüksek yükseklik açısında P.2109 yüksek-persentil
+   değerleri). Tek başına bu, netgain'i −6 → −36'ya düşürüp linki Deney 2'deki
+   başarısızlık rejimine sokuyor. Bir HAPS'a (20 km) bina duvarı arkasından bağlı
+   el terminali gerçekten de çalışmazdı — sonuç fiziksel olarak makul.
+
+2. **⚠️ YENİ BUG bulundu — O2I her saniye yeniden çekiliyor**: `haps_o2i_entry_loss_dB()`
+   (`haps_o2i.c`) her çağrıda taze bir `uniformrandom()` persentil çekimi yapıyor
+   → O2I kaybı saniyede bir 5 … 56 dB arası zıplıyor. Bu **Adım 39'da gölge
+   sönümleme için düzeltilen bug'ın aynısı**: O2I giriş kaybı per-link bir özellik
+   (hangi bina, hangi duvar/kat), sabit UE için bağlantı ömrü boyunca sabit
+   olmalı — `large_scale_drawn` guard'ı altına alınıp donmalı.
+   - Not: bu bug link zaten başarısız olduğu için sonucu değiştirmiyor (en düşük
+     çekim ~5 dB bile netgain'i −11'e indirmez ama medyan ~30 dB kesin batırıyor).
+     Yine de düzeltilmeli — O2I'nin marjinal etkili olabileceği bir senaryoda
+     (Ka-bant değil, daha küçük giriş kaybı) yanıltıcı olur.
+
+**Sonuç**: ✅ Hipotez doğrulandı — O2I linki bozuyor (indoor el terminali + HAPS
+= çalışmaz). Ayrıca O2I'nin per-saniye yeniden çekilme bug'ı tespit edildi
+(Adım 41 adayı — Adım 39'un O2I'ye uygulanmamış hali).
