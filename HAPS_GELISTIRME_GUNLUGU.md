@@ -3107,3 +3107,126 @@ davranışa hiçbir etkisi olmadığı doğrulandı.
 **Sonuç**: Bu projenin dokunduğu/oluşturduğu tüm dosyalar artık OAI'nin
 `.clang-format` standardına tam uyumlu - önceki OAI'ye katkı araştırmasında
 bulunan bir eksik giderildi.
+
+---
+
+### Adım 38 — OAI'ye katkı durumu takip dokümanı
+
+Kod değişikliği yok. Kanal bloğu tasarımı bittikten sonra, HAPS çalışmasını
+upstream OAI'ye ("Duranta OpenAirInterface") katkı olarak göndermek için OAI'nin
+kendi standartlarının (imzalı commit, DCO, `Assisted-by:`, doğrusal geçmiş, PR
+etiketi, kod stili) ne istediğini ve projenin bu standartlara göre nerede
+olduğunu tek yerde takip etmek üzere `haps_test/HAPS_OAI_KATKI_DURUMU.md`
+oluşturuldu.
+
+---
+
+### Adım 39 — Büyük-ölçekli rastgeleliğin donmaması bug'ı (gölge sönümleme + LOS/NLOS)
+
+**Belirti (Test Günlüğü Deney 2)**: Kentsel senaryo + düşük yükseklik açısı
+(`HAPS_GROUND_OFFSET_M=35000`), sinyali kötüleştirmesi gerekirken *iyileştirdi*;
+ölçülen SINR çok oynaktı (−17 … +39 dB) ve senaryolar arası trend tutarsızdı.
+
+**Kök neden**: `haps_38811_path_loss_dB()` (`haps_propagation.c`) saniyede bir
+çağrılıyor ve **her çağrıda** iki büyük-ölçekli rastgele büyüklüğü sıfırdan
+çekiyordu:
+- LOS/NLOS durumu: `is_los = uniformrandom() < los_prob[...]`
+- Gölge sönümleme: `shadow_fading_dB = sigma_SF * gaussZiggurat(0,1)`
+
+İkisi de **büyük-ölçekli** etkiler (dekorelasyon mesafesi ~onlarca metre). Bu
+simülatörde UE uzayda sabit — yani onları dekorele edecek hareket yok, fiziksel
+olarak doğru davranış bağlantı başına **tek sabit gerçekleşim**. Saniyede bir
+yeniden çekmek, `sigma_SF`'i (kentsel NLOS'ta 6 dB, düşük açıda LOS olasılığı
+~0.5) gerçek küçük-ölçekli sönümlemenin üstüne binen hızlı bir geniş-bant
+sönümleme sürecine çeviriyordu. Düşük açılı kentsel NLOS'ta `PLb` saniyede bir
+±18 dB (SF) + ±29 dB (clutter, LOS/NLOS her saniye değişince) zıplıyordu.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/sim.h`
+`~ Değiştirildi:` `haps_channel_ctx_t`'ye iki alan eklendi:
+```
+bool large_scale_drawn;   // ilk çekimden sonra true - calloc ile false
+double shadow_fading_dB;   // donmuş SF gerçekleşimi
+```
+`is_los` alanının yorumu "her saniye çekilen" → "bir kez çekilip donmuş" olarak
+güncellendi.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_propagation.c`
+`~ Değiştirildi:` `is_los` ve `shadow_fading_dB` artık `if (!ctx->large_scale_drawn)`
+guard'ı altında, **yalnızca ilk çağrıda** çekiliyor; sonraki çağrılar
+`ctx`'teki donmuş değerleri kullanıyor. Deterministik terimler (canlı eğik
+mesafeden FSPL, clutter-loss tablo araması, gaz/yağmur/sintilasyon) her çağrı
+güncellenmeye devam ediyor.
+`# Gerekçe:` SF ve LOS/NLOS bağlantı ömrü boyunca tek gerçekleşim olmalı; 3GPP
+kalibrasyon metodolojisi de SF'i drop başına tek Gauss çekimi olarak ele alır.
+
+**Sonuç**: SF ve LOS/NLOS artık bağlantı boyunca sabit. Deney 1'in (kentsel
+zenit) ölçülen SINR'ı düzeldi (occasional NLOS-flip artık yok), UL yeniden
+iletimleri 9 → 0. Ama bu tek başına inversiyonu çözmedi (bkz. Adım 40) — çünkü
+asıl sorun bir katman daha aşağıdaydı.
+
+---
+
+### Adım 40 — Inversiyon'un asıl kök nedeni: int16 taşması + işe yaramayan gürültü tabanı; referans-göreli kazanç bütçesine geçiş
+
+**Kök neden (tam)**: rfsim `channelDesc->path_loss_dB`'yi bir **kazanç** olarak
+uyguluyor: `rxAddInput()` sinyali `pow(10, path_loss_dB/20)` ile çarpıyor,
+sonuç `simulator.cpp`'de `lroundf` ile `int16`'ya yazılıyor. Eski
+`EIRP + SIM_CALIBRATION - PLb` şeması yakın-zenit çalışma noktasını **~+30 dB net
+kazanç**a koyuyordu → RX örnekleri `INT16_MAX`'ı aşıp **sarıyordu** (saturate
+değil, wrap — sessiz, ağır bozulma). SNR'ı belirleyen şey modellenen gürültü
+değil, bu sarma bozulmasıydı. Daha kötü bir geometri (düşük açı / NLOS / clutter)
+→ daha az kazanç → **daha az sarma** → paradoksal olarak **daha yüksek** ölçülen
+SINR. Bütün senaryolar-arası inversiyonun sebebi buydu.
+
+İkinci sorun: eklenen Gauss gürültüsü (`noise_per_sample = pow(10, noise_power_dB/10)*256`,
+genlik olarak eklenir) kТB+NF değerinde (~−98 dBm) ~1e−8 genlik — int16 sinyalin
+yanında ihmal edilebilir. Yani "gerçek 3GPP gürültü figürü" (Adım 36) hiçbir
+davranış üretmiyordu.
+
+**Düzeltme yaklaşımı**: net kazancı **en iyi durum geometriye göreli** döndür.
+En iyi durum = zenit (90° yükseklik), LOS, nominal irtifa → temel yol kaybı
+sadece zenit FSPL. `path_loss_dB` buna göreli döndürülüyor: en iyi durum
+`HAPS_38811_REF_NET_GAIN_DB` (≤ 0, PAPR payı ile), her kötü geometri kesinlikle
+daha fazla zayıflatılmış — asla pozitif kazanç, yani asla sarma. SINR artık
+gerçekten gürültü tabanı tarafından belirleniyor; gürültü tabanı da rfsim'in
+genlik rejimine ölçekleniyor.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_propagation.c`
+- `- Kaldırıldı:` `HAPS_38811_EIRP_DENSITY_DBW_PER_MHZ`, `HAPS_38811_EIRP_REFERENCE_BANDWIDTH_MHZ`, `HAPS_38811_SIM_CALIBRATION_DB` (114.93) ve `eirp_dBW` hesabı.
+- `+ Eklendi:` `HAPS_38811_REF_NET_GAIN_DB = -6.0` (ampirik).
+- `~ Değiştirildi:` dönüş `eirp_dBW + SIM_CALIBRATION - PLb_dB` → `HAPS_38811_REF_NET_GAIN_DB - (PLb_dB - fspl_ref_dB)`; `fspl_ref_dB` = `channelDesc->sat_height`'ten hesaplanan zenit FSPL.
+- `~ Değiştirildi:` `HAPS_DEBUG_38811` çıktısı artık `FSPLref` ve `netgain` basıyor (`EIRP` yerine).
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/random_channel.c`
+- `+ Eklendi:` `HAPS_38811_NOISE_SIM_SCALE_DB = 60.0`, `haps_38811_noise_floor_dB()`'nin dönüşüne ekleniyor.
+- `# Gerekçe:` kТB+10log10(BW)+NF şekli korunuyor (göreli BW/NF değişimleri gürültüyü doğru yönde oynatsın) ama saniyede bir genlik rejimine kaydırılıyor ki referans link makul-yüksek ama sarmayan bir SINR'a otursun, kötü geometriler altına düşsün.
+
+**Ampirik ayar (Adım 36'nın yaptığı gibi)**: `REF_NET_GAIN = -6`, `NOISE_SIM_SCALE = 60`.
+- `-10/-6` + scale `95/72`: çalışan senaryolar (plain NTN, düşük açı) senkron olamadı → çok agresif.
+- `-6` + scale `60`: hepsi geçti.
+
+**Doğrulama (recalib, 60s+ koşular)**:
+
+| Senaryo | Sonuç | netgain |
+|---|---|---|
+| Baz `_38811` (banliyö zenit) | ✅ bağlanır, temiz, SINR CQI tavanında (~40) | −5.7 dB |
+| Plain NTN (Senaryo 3) | ✅ bağlanır, kararlı | ~−6 dB |
+| Deney 1 (kentsel zenit) | ✅ bağlanır, temiz | ~−7 dB |
+| band78 `HAPS_STATIONARY` (Senaryo 1) | ✅ bağlanır, temiz | −7.2 dB |
+| MIMO 2x2 (Senaryo 7) | ✅ bağlanır, 2 stream | — |
+| **Deney 2 (kentsel, 35 km)** — LOS çekilirse | ✅ bağlanır, netgain ~−11 | −11 dB |
+| **Deney 2 (kentsel, 35 km)** — NLOS çekilirse (4/6 koşu) | ❌ **senkron olamaz** — 700+ synch-fail | −38…−50 dB |
+
+**Sonuç**: Inversiyon çözüldü. Kötü geometri artık doğru yönde: düşük açılı
+kentsel NLOS link (44 km eğik mesafe, +29 dB clutter) artık **başarısız oluyor**
+(fiziksel olarak da öyle olmalı). Bütün önceden doğrulanmış senaryolar hâlâ
+çalışıyor. Kalan sınır: referans link SINR'ı hâlâ CQI tablo tavanında (~+40)
+railleniyor, yani *çalışan* senaryolar arasındaki ince farklar hâlâ görünmüyor;
+bunu açmak gürültü ölçeğini ~15-20 dB artırmayı gerektirir ki bu da marjinal
+senaryoları (plain NTN scale 72'de zaten sınırdaydı) bozma riski taşır. `60`
+güvenli, niteliksel inversiyonu çözen değer.
+
+**Not — Deney 2 artık stokastik**: LOS/NLOS artık donmuş (Adım 39), 27° yükseklik
+açısında `los_prob[urban] ≈ 0.49` → koşu başına ~yazı-tura. Bu fiziksel olarak
+doğru: kentsel ortamda 27°'de platforma görüş hattın olup olmaması gerçekten
+~50/50 ve linki gerçekten yapar/bozar.

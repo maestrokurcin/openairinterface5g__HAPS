@@ -84,8 +84,17 @@ Bir deneyde bakılacak alanlar:
 
 ## 3. Baz (referans) senaryo
 
-> Kalibre edildi: **2026-09-01**. Bundan sonraki her deney "baz senaryoya göre şu
-> değişti" diye buna atıf yapar. Yeniden ölçülürse tarih ve rakamlar güncellenir.
+> İlk kalibrasyon: **2026-09-01**. **Yeniden kalibre edildi 2026-09-01** —
+> Deney 2'de bulunan int16-taşması / donmayan-rastgelelik bug'ları düzeltildikten
+> sonra (Geliştirme Günlüğü Adım 39 + 40). Aşağıdaki 3.2 tablosu **düzeltme
+> sonrası** değerleri gösterir; eski (taşmalı kalibrasyon) değerleri "eski" olarak
+> not düşüldü. Bundan sonraki her deney bu tabloya atıf yapar.
+
+> **Önemli**: `path_loss_dB` artık en-iyi-durum geometriye göreli bir **net
+> kazanç** (`HAPS_DEBUG_38811=1` → `netgain` alanı). Referans (banliyö zenit LOS)
+> ≈ −6 dB; her kötü geometri daha negatif. Bu artık senaryo karşılaştırmasının
+> **birincil metriği** — UE-bildirimli SINR referans linkte CQI tavanına (~+40)
+> railleniyor, o yüzden çalışan senaryolar arasında ayırt edici değil.
 
 ### 3.1 Konfigürasyon
 
@@ -106,44 +115,43 @@ Bir deneyde bakılacak alanlar:
 
 ### 3.2 Ölçülen sonuç
 
-| Metrik | Değer | Not |
+| Metrik | Değer (düzeltme sonrası) | Not |
 |---|---|---|
-| RA sonucu | ✅ **ilk denemede** başarılı | gNB'nin RA-timing'den kalan mesafe tahmini ~390 m (NTN açık-döngü ön-telafisi çalışıyor) |
-| RRC bağlantısı | ✅ `NR_RRC_CONNECTED`, `RRCSetupComplete` | UE frame 8'de senkron |
-| Kopma / out-of-sync | **0** (tüm ~90 sn boyunca `in-sync`) | 0 re-sync, 0 RA-fail |
-| DL HARQ turları | `166/0/0/0` | hiç yeniden iletim yok |
-| UL HARQ turları | `1652/0/0/0` | hiç yeniden iletim yok |
-| DL BLER | ≈ 0 (`0.00001`) | `dlsch_errors 0` |
-| UL BLER | 0 (`0.00000`) | `ulsch_errors 0`, `ulsch_DTX 0` |
-| gNB PUSCH SNR | ~16.3 dB (hedefin +1.3 dB üstü) | kararlı |
+| **net kazanç (`netgain`)** | **≈ −5.7 dB** | LOS (donmuş), `PLb ≈ 126` ≈ `FSPLref`; referans nokta |
+| RA sonucu | ✅ **ilk denemede** başarılı | kalan mesafe tahmini ~390 m (NTN ön-telafisi çalışıyor) |
+| RRC bağlantısı | ✅ `NR_RRC_CONNECTED`, `RRCSetupComplete` | senkron ~frame 794 (bu makinede yavaş — temiz kodda da öyle, kalibrasyonla ilgisi yok) |
+| Kopma / out-of-sync | **0** (~90 sn boyunca `in-sync`) | 0 re-sync, 0 RA-fail |
+| DL HARQ turları | `78/0/0/0` | hiç yeniden iletim yok |
+| UL HARQ turları | `765/0/0/0` | hiç yeniden iletim yok |
+| DL / UL BLER | ≈ 0 / 0 | `dlsch_errors 0`, `ulsch_errors 0` |
+| gNB PUSCH SNR | ~17.2 dB (hedef +2.2) | kararlı (güç kontrolü hedefe kilitliyor) |
 | gNB PUCCH SNR | ~22 dB | kararlı |
-| UE-bildirimli DL SINR (`average SINR`) | medyan **+0.4 dB**, ort. ~0 dB, %25–%75: −2.7 … +3.2 dB, aralık **−16.6 … +12.0 dB** | loiter geometrisi + NTN-TDL küçük-ölçekli sönümleme yüzünden çok oynak |
-| TR 38.811 büyük-ölçek yol kaybı | ~30–31 dB | ~2 GHz, 20 km, zenit; sönümleme dahil anlık değer ~6 … 33 dB arası salınıyor |
-| DL tek-yön gecikme | ~0.067 ms | çok kararlı (0.0671–0.0672 ms) |
+| UE-bildirimli DL SINR (`average SINR`) | medyan **+39.8 dB**, aralık +39.1 … +40.0 | **CQI tavanına raillenmiş** — link "çok iyi"; çalışan senaryolar arası ayırt edici değil |
+| gürültü tabanı (`noise_power_dB`) | −38.0 (5 MHz, µ=0) | `-174 + 10log10(BW) + 9 + 60` (NOISE_SIM_SCALE, Adım 40) |
+| DL tek-yön gecikme | ~0.067 ms | çok kararlı |
 | Doppler (SAT→UE) | ~21 Hz | HAPS platformu + yavaş UE, ihmal edilebilir |
-| DL/UL MCS | 0 / 0 | **anlamlı değil** — trafik yok |
-| DL/UL goodput | 0 / 0 Mbps | **anlamlı değil** — trafik yok |
-| UE RNTI (bu koşu) | `c964` | referans için |
+| DL/UL MCS, goodput | 0 / 0 | **anlamlı değil** — trafik yok (5GC bağlı değil) |
+
+**Eski (taşmalı kalibrasyon, düzeltmeden önce) — artık geçersiz**: DL SINR medyan
++0.4 dB (−16 … +12), "net ploss ~30 dB". Bu değerler int16 sarma bozulmasının
+ürünüydü; bkz. Geliştirme Günlüğü Adım 40.
 
 ### 3.3 Yorum
 
 - **Bağlantı sağlığı mükemmel**: RA ilk denemede geçti, ~90 sn boyunca tek bir
-  kopma/yeniden iletim yok, DL ve UL BLER sıfıra yakın. Kanal bloğu "temiz
-  kırsal/banliyö HAPS" senaryosunda bir bağlantıyı kurup taşıyabiliyor.
-- **UE-bildirimli DL SINR düşük ve çok oynak** (−16 … +12 dB) ama bu **beklenen**:
-  `HAPS_MOBILE_38811` hem loiter yörüngesinin geometrik değişimini hem de NTN-TDL
-  küçük-ölçekli sönümlemeyi uyguluyor; wideband CSI SINR bunu birebir yansıtıyor.
-  BLER'in yine de sıfır kalması, ölçülen anlık SINR'ın kod hızı marjının altına
-  yeterince uzun süre düşmediğini gösteriyor (SRB trafiği düşük MCS'te robust).
-- **MCS ve goodput bu kurulumda ölçülemiyor**: AMF/5GC bağlı olmadığı için PDU
-  oturumu açılmıyor, kullanıcı-düzlemi IP trafiği yok. Karşılaştırmalarda
-  MCS/goodput yerine **SINR dağılımı, yol kaybı, BLER, HARQ tur dağılımı ve kopma
-  sayısı** kullanılacak. Gerçek verim ölçümü istenirse ayrı bir adımda tam
-  docker/5GC yığını ya da `--phy-test` modu kurulmalı.
-- **RSRP dBm olarak loglanmıyor**: bu conf'ta periyodik CSI-RS RSRP raporlaması
-  yok; UE yalnızca ilk PBCH senkronunda ham bir `rsrp` değeri basıyor. Yol
-  kaybını temsilci metrik olarak `HAPS_DEBUG_38811=1` çıktısındaki
-  `net ploss_dB` kullanılacak.
+  kopma/yeniden iletim yok, DL ve UL BLER sıfıra yakın.
+- **DL SINR CQI tavanında raillenmiş** (~+40): referans link çok iyi. Adım 40'tan
+  sonra net kazanç yakın-zenit için −6 dB (sarma yok); modellenen gürültü tabanı
+  bunu +40 dB üstünde bir SINR'a oturtuyor, CQI tablosu +40'ta kesiliyor. Yani
+  *çalışan* senaryolar arasında SINR ayırt edici değil — **`netgain` dB birincil
+  karşılaştırma metriği**.
+- **Karşılaştırma metrikleri**: `netgain` (birincil), sonra BLER, HARQ tur
+  dağılımı, kopma sayısı, RA başarı/deneme, gecikme, Doppler. MCS/goodput
+  ölçülemiyor (5GC yok — gerçek verim için ayrı adımda docker/5GC ya da
+  `--phy-test` gerekli).
+- **RSRP dBm olarak loglanmıyor**: bu conf'ta CSI-RS RSRP raporlaması yok;
+  `HAPS_DEBUG_38811=1` çıktısındaki `netgain` (ve `PLb`) yol kaybının temsilci
+  metriği.
 
 ### 3.4 Yeniden üretme komutları
 
@@ -277,6 +285,11 @@ Beklenmedik bir şey varsa: neden olabilir, hangi dosyaya bakılmalı?>
 
 ### Deney 1 — Kırsal/banliyö → Kentsel
 
+> ⚠️ **Bu deney taşmalı kalibrasyonla koşuldu (Adım 40 öncesi)** — aşağıdaki SINR /
+> HARQ / retransmit rakamları o yüzden güvenilmez. Adım 39 + 40 düzeltmesinden
+> sonra Deney 1 (kentsel zenit) temiz bağlanıyor, netgain ~−7 dB, 0 retransmit.
+> Ayrıntılı yeniden koşum bekliyor. Sonuçlar aşağıda tarihsel kayıt olarak duruyor.
+
 - **Tarih**: 2026-09-01
 - **Değişen tek şey**: kanal senaryosu `SUBURBAN_RURAL` → `URBAN`
   (config çifti `..._38811.conf` → `..._38811_urban.conf`)
@@ -382,11 +395,10 @@ gerekirken ölçülen SINR tam tersi. Ayrıca `net ploss_dB` logunun ortalaması
 teriminin ortalaması/işareti ya da `HAPS_38811_SIM_CALIBRATION_DB = 114.93`
 sabitinin yalnızca zenit senaryosuna göre kalibre edilmiş olması şüpheli.
 
-**Sonuç**: ⚠️ Hipotez **çürütüldü** — düşük yükseklik açısı + kentsel, sinyali
-kötüleştirmesi gerekirken iyileştirdi. Geometri/gecikme/Doppler doğru; büyük-
-ölçek yol kaybının sinyal kazancına çevrilmesinde bir işaret/kalibrasyon hatası
-var. Düzeltme yapıldığında `HAPS_GELISTIRME_GUNLUGU.md`'ye adım olarak eklenip
-bu deney yeniden koşulacak.
+**Sonuç (ilk koşu, düzeltmeden önce)**: ⚠️ Hipotez **çürütüldü** — düşük
+yükseklik açısı + kentsel, sinyali kötüleştirmesi gerekirken iyileştirdi.
+Geometri/gecikme/Doppler doğruydu; sorun büyük-ölçek yol kaybının sinyal
+kazancına çevrilmesindeydi.
 
 **Yeniden üretme**
 
@@ -395,3 +407,47 @@ bu deney yeniden koşulacak.
 HAPS_GROUND_OFFSET_M=35000  [+ isteğe bağlı HAPS_DEBUG_38811=1]
 # config çifti: gnb.haps_mobile_ntn_38811_urban.conf / nrue.haps_mobile_ntn_38811_urban.conf
 ```
+
+---
+
+#### Deney 2 — BUG DÜZELTİLDİ (2026-09-01, Geliştirme Günlüğü Adım 39 + 40)
+
+İki kök neden bulunup düzeltildi:
+
+1. **Adım 39 — büyük-ölçekli rastgelelik donmuyordu**: `haps_38811_path_loss_dB()`
+   gölge sönümlemeyi ve LOS/NLOS durumunu **saniyede bir** yeniden çekiyordu. İkisi
+   de büyük-ölçekli, bağlantı başına tek gerçekleşim olmalı. Artık ilk çağrıda bir
+   kez çekilip donuyor.
+2. **Adım 40 — int16 taşması**: rfsim `path_loss_dB`'yi bir kazanç olarak
+   uyguluyor ve eski kalibrasyon yakın-zeniti ~+30 dB net kazanca koyuyordu → RX
+   örnekleri int16'yı aşıp **sarıyordu**; SNR'ı belirleyen bu sarma bozulmasıydı.
+   Daha kötü geometri → daha az sarma → **daha yüksek** ölçülen SINR (inversiyon).
+   Artık net kazanç **en iyi durum geometriye göreli** hesaplanıyor (zenit LOS ≈
+   −6 dB, her kötü geometri kesinlikle daha zayıf, asla pozitif → asla sarma) ve
+   gürültü tabanı rfsim'in genlik rejimine ölçeklendi.
+
+**Düzeltme sonrası Deney 2** (`HAPS_DEBUG_38811=1` ile `netgain` görünür):
+
+| LOS/NLOS çekimi (donmuş) | netgain | Sonuç |
+|---|---|---|
+| **NLOS** (koşuların ~%50-65'i, `los_prob[urban,27°] ≈ 0.49`) | −38 … −50 dB | ❌ **Link kurulamıyor** — UE senkron olamıyor (700+ synch-fail) |
+| **LOS** | ~−11 dB | ✅ Kurulur, netgain zenitin ~5 dB altında |
+
+**Yorum**: Inversiyon çözüldü. Düşük açılı kentsel NLOS link (44 km eğik mesafe,
++29 dB clutter kaybı) artık **fiziksel olarak doğru şekilde başarısız oluyor**.
+LOS çekildiğinde link çalışıyor ama zenitten zayıf. Deney artık **stokastik**:
+27° yükseklik açısında platforma görüş hattın olup olmaması gerçekten ~yazı-tura
+ve linki yapar/bozar — bu bir bug değil, doğru davranış.
+
+**Regresyon kontrolü** (hepsi düzeltme sonrası bağlanıyor): baz `_38811`,
+plain NTN (Senaryo 3), Deney 1 (kentsel zenit), band78 `HAPS_STATIONARY`
+(Senaryo 1), MIMO 2x2 (Senaryo 7).
+
+**Kalan sınır**: referans link SINR'ı hâlâ CQI tablo tavanında (~+40) railleniyor
+→ *çalışan* senaryolar arasındaki ince farklar (banliyö vs kentsel zenit gibi)
+SINR üzerinden hâlâ görünmüyor; sadece pass/fail sınırı ve yön artık doğru.
+Karşılaştırmalar için `HAPS_DEBUG_38811=1` çıktısındaki **`netgain` dB** en
+temiz metrik.
+
+**Sonuç**: ✅ Bug düzeltildi (Adım 39 + 40). Hipotez artık **doğrulanıyor** —
+düşük yükseklik açısı + kentsel NLOS, linki (çoğu zaman tamamen) bozuyor.
