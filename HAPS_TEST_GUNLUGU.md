@@ -802,3 +802,50 @@ ile kentsel senaryo arasında bir etkileşim yok. Gözlenen değişkenlik tamame
 LOS/NLOS çekiminden (Deney 8'de zaten karakterize edilen mekanizma); profil
 seçimi (A/C vs B/D) hiçbir koşulda fark yaratmadı (Deney 6'nın sonucunu
 kentsel için de doğruluyor).
+
+---
+
+### Deney 10 — UE arabada (50 km/h)
+
+- **Tarih**: 2026-09-01
+- **Değişen tek şey**: `HAPS_UE_SPEED_MPS=13.89` (50 km/h — şehir içi araba).
+  Baz senaryo 3 km/h (yürüyüş, ITU-R M.1225 yaya referansı), Deney 4 ise
+  30 m/s = 108 km/h (otoyol).
+- **Amaç**: yürüyüş vs araba vs otoyol — UE mobilitesi süpürmesi
+- **Süre**: 6 koşu (kural 7), ~55 sn her biri
+
+**Sonuç** (banliyö zenit)
+
+| Koşu | Durum | netgain | UL BLER (mean / max) | Yeniden iletim | Sonuç |
+|---|---|---|---|---|---|
+| #1,2,3,5,6 | LOS | −5.4 … −6.4 dB | ~%0.2–0.5 / ~%6 | 0–1 | ✅ temiz |
+| #4 | **NLOS** (şanssız çekim) | −19.6 dB | — | — | ❌ bağlanamıyor |
+
+**Mobilite karşılaştırması** (hepsi banliyö zenit, LOS):
+
+| Hız | `fd_local` | UL BLER (mean) | Yeniden iletim | Not |
+|---|---|---|---|---|
+| **3 km/h** (yürüyüş, baz) | 6.9 Hz | ≈0 | 0 | Bölüm 3 |
+| **50 km/h** (araba, Deney 10) | **115 Hz** | **~%0.2–0.5** | **0–1** | 5/5 temiz |
+| **108 km/h** (otoyol, Deney 4) | 249 Hz | ~%0.3 tipik, ~%10 (6 koşuda 1) | 0 tipik, ~62 (outlier) | ara sıra sürekli episod |
+
+**Yorum**
+
+**50 km/h, yürüyüşten pratikte ayırt edilemez.** `fd_local` 7 → 115 Hz'e
+çıksa da, sönümleme hâlâ ~1 ms'lik HARQ gidiş-dönüşüne göre yavaş kalıyor →
+kanal kestirimi ve güç kontrolü rahatça izliyor. Bir stat penceresinde ara sıra
+%5.9'a çıkan UL BLER görülüyor ama mean %0.5'in altında ve 0 yeniden iletim.
+
+Hızlı-fade bozulması ancak **otoyol hızlarında** (108 km/h, `fd_local` 249 Hz)
+ve o zaman bile yalnızca **ara sıra** (koşuların ~1/6'sı) sürekli bir UL BLER
+episoduna dönüşüyor — asla kopma yok.
+
+Deney 10 #4'ün başarısızlığı **hıza bağlı değil**: şanssız bir NLOS çekimi
+(netgain −19.6, Deney 8/9'daki aynı mekanizma). Loiter yörüngesi yüzünden
+donma anındaki yükseklik açısı tam 90° değil ~84-87° → `los_prob` 0.95-0.998
+→ NLOS birkaç-yüzde-olasılıklı bir olay, bu kadar koşuda 1 kez görmek normal.
+
+**Sonuç**: ✅ Şehir içi araç hızı (50 km/h) HAPS linkini hiç zorlamıyor —
+yürüyüşle aynı. NTN + HAPS geometrisi düşük platform Doppler'i sağladığı için,
+kritik olan UE'nin kendi yerel-saçılma Doppler'i ve o da ancak otoyol
+hızlarında marjinal etkili oluyor.
