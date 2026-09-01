@@ -1149,5 +1149,32 @@ kısmen de doğrusal-interpolasyonlu fraksiyonel gecikme bölünmesinin enerji
 korumaması (`(1−frac)² + frac²`, frac=0.5'te 0.5'e düşer) — bu ikincisi tüm
 hızlarda var olan küçük bir kusur, Deney 16'ya özgü değil.
 
-**Sonuç**: ⚪ Hipotez çürütüldü (BLER sıfırlanmıyor) + ⚠️ `HAPS_UE_SPEED_MPS=0`
-NLOS'ta ölü kanal bug'ı bulundu (Adım 43 adayı).
+**Sonuç (ilk koşu)**: ⚪ Hipotez çürütüldü (BLER sıfırlanmıyor) + ⚠️
+`HAPS_UE_SPEED_MPS=0` NLOS'ta ölü kanal bug'ı bulundu.
+
+---
+
+#### Ölü-kanal bug'ı DÜZELTİLDİ (2026-09-01, Geliştirme Günlüğü Adım 43) + Deney 16 yeniden koşuldu
+
+**Düzeltme**: `haps_update_tdl_taps()` artık ilk çağrıda AR(1) sönümleme durumunu
+sürecin durağan varyansıyla (birim kompleks güç) bir kez tohumluyor
+(`tdl_state_seeded` bayrağı). `rho = 1` (hız 0) iken bile donmuş durum artık
+geçerli bir Rayleigh gerçekleşimi, 0 değil.
+
+**Doğrulama** (`HAPS_UE_SPEED_MPS=0`, `HAPS_DEBUG_TDL=1`):
+
+| Senaryo | NLOS tap_energy (düzeltmeden önce → sonra) |
+|---|---|
+| urban + 10 km offset, NLOS çekilen koşular | **0.0 → ~0.46 / ~1.22** (gerçekleşimden gerçekleşime değişen, ort ~1.0) |
+| banliyö zenit, LOS koşular | 0.455 (sabit) → 0.42…1.07 (değişken — diffuse bileşen artık gerçek enerjiye sahip) |
+
+Regresyon: varsayılan-hız (3 km/h) baz senaryo etkilenmedi — RRC bağlanıyor,
+UL HARQ temiz (`458/0/0/0`).
+
+**Yeniden koşum sonucu**: `HAPS_UE_SPEED_MPS=0` artık her iki profilde de
+(LOS ve NLOS) çalışan bir donmuş sönümleme kanalı veriyor. BLER cevabı
+değişmedi (LOS koşularında ~%0.2, hareketli durumla aynı — beklenen).
+
+**Sonuç**: ✅ Bug düzeltildi (Adım 43). Deney 16'nın ana bulgusu (fade'i
+dondurmak BLER'i sıfırlamıyor) geçerli; ek olarak `HAPS_UE_SPEED_MPS=0` artık
+NLOS için de güvenli kullanılabilir bir knob.

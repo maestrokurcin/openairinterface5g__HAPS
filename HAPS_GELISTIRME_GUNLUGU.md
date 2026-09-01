@@ -3293,3 +3293,43 @@ sonuçlarına güvenmek için gerekliydi.
 **Sonuç**: Düşük-açı deneylerindeki yüksek NLOS oranları (D11'de 7/8, D13'te
 düşük açıda ~%50) gerçek — kod bug'ı değil, TR 38.811'in kentsel/yoğun-kentsel
 için öngördüğü LOS olasılıklarının doğru uygulanması.
+
+---
+
+### Adım 43 — `HAPS_UE_SPEED_MPS=0` + NLOS = ölü kanal bug'ı düzeltildi
+
+**Belirti (Test Günlüğü Deney 16)**: `HAPS_UE_SPEED_MPS=0` ile NLOS profili
+çekildiğinde `total_tap_energy = 0.0` — kanal hiç sinyal geçirmiyor.
+
+**Kök neden**: `haps_tdl.c`'deki NTN-TDL tap kazancı AR(1) süreci
+(`ctx->tdl_state`) calloc ile **0**'dan başlıyor ve sadece inovasyon terimiyle
+hareket ediyordu: `state = rho·state + innov_scale·innov`. `HAPS_UE_SPEED_MPS=0`
+→ `fd_local = 0` → `rho = exp(0) = 1` → `innov_scale = sqrt(1−1) = 0` → state
+hiçbir zaman 0'dan ayrılmıyor. NLOS profilinde (TDL-A/B, tüm taplar Rayleigh)
+tap kazancı `tap_amp·(0 + 1·0) = 0` → bütün taplar tam sıfır → ölü kanal.
+LOS'ta (TDL-C/D, tap 0 Ricean) specular bileşen deterministik olduğu için sağ
+kalıyordu.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/sim.h`
+`~ Değiştirildi:` `haps_channel_ctx_t`'ye `bool tdl_state_seeded;` eklendi.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_tdl.c`
+`~ Değiştirildi:` `haps_update_tdl_taps()` başında, ilk çağrıda `tdl_state[4][4]`
+slotlarının hepsi sürecin durağan (stationary) bileşen-başına varyansıyla
+(`gaussZiggurat(0.0, 0.5)`, birim kompleks güç) tohumlanıyor. Böylece `rho = 1`
+iken bile donmuş durum geçerli bir Rayleigh gerçekleşimi. Ek fayda: normal
+hızlarda AR(1) ısınma (burn-in) geçici rejimi de kalkıyor.
+`# Gerekçe:` "hız 0 = fade donuk" semantiği için AR(1)'in sabitlenmiş değeri
+geçerli bir sönümleme örneği olmalı, 0 değil. Durağan varyansla tohumlamak süreci
+1. adımdan itibaren durağan yapar.
+`~ Not:` RNG akışına 32 `gaussZiggurat` çağrısı eklendi (bir kez) — eski
+koşuların bit-birebir tekrarını bozar ama bu oturumdaki diğer düzeltmeler zaten
+bozuyordu.
+
+**Doğrulama (Test Günlüğü Deney 16 yeniden koşumu)**: `HAPS_UE_SPEED_MPS=0` +
+NLOS (urban, offset 10 km) koşularında `total_tap_energy` artık ~0.46 / ~1.22
+(gerçekleşimden gerçekleşime değişen, ortalama ~1.0) — 0.0 değil. Varsayılan-hız
+baz senaryo etkilenmedi (RRC bağlanıyor, temiz).
+
+**Sonuç**: Bug düzeltildi. `HAPS_UE_SPEED_MPS=0` artık her iki profilde de
+(LOS ve NLOS) geçerli bir donmuş sönümleme kanalı veriyor.
