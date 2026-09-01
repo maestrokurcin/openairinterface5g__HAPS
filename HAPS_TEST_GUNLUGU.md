@@ -480,3 +480,51 @@ eklenirse bu deney orada anlamlı olur.
 
 **Sonuç**: ✅ Hipotez doğrulandı — S-bandında yağmurun etkisi yok (0.013 dB).
 Yağmur, yalnızca Ka-bandı için anlamlı bir değişken.
+
+---
+
+### Deney 4 — Hızlı UE (108 km/h)
+
+- **Tarih**: 2026-09-01
+- **Değişen tek şey**: `HAPS_UE_SPEED_MPS=30` (108 km/h) — baz senaryoda varsayılan
+  3 km/h (0.833 m/s)
+- **Etkilediği yer**: `haps_tdl.c`'de `fd_local = ue_speed · fc / c` — yerel
+  saçılma Doppler bandı, NTN-TDL AR(1) sönümlemesinin dekorelasyon hızı
+- **Beklenti**: daha hızlı fade → kanal kestirimi/HARQ penceresi içinde daha çok
+  değişim → BLER↑
+- **Süre**: ~90 sn, trafik yok, Adım 39+40 kalibrasyonu
+
+**Sonuç**
+
+| Metrik | Baz (3 km/h) | Deney 4 (108 km/h) |
+|---|---|---|
+| `fd_local` | ~6.9 Hz | **249 Hz** (36×) |
+| netgain | ≈ −5.7 dB | ≈ −5.7 dB (değişmedi — bu büyük-ölçek, yağmur/açı değil) |
+| RA / RRC / kopma | ✅ / ✅ / 0 | ✅ / ✅ / **0** (bağlantı ayakta kalıyor) |
+| **UL BLER** (koşu boyu) | **0** | **medyan %9.5, tepe %25** (mean %10.5) — sürekli |
+| **UL HARQ turları** | `765/0/0/0` | **`573/56/5/1`** (~62 yeniden iletim) |
+| DL BLER | ≈ 0 | medyan %0.5, tepe %10 (mean %1.8) — hafif |
+| DL HARQ turları | `78/0/0/0` | `59/0/0/0` (temiz) |
+| gNB PUSCH SNR | ~17.2 dB | ~16.3 dB (ortalama korunuyor, anlık varyans yüksek) |
+| DL SINR (UE) | +39.8 (dip 39.1) | +39.7 (dip **38.1** — biraz daha yayvan) |
+
+**Yorum**
+
+Hızlı UE hareketi (108 km/h) yerel saçılma Doppler'ini 7 → 249 Hz'e çıkarıyor;
+NTN-TDL sönümlemesi ~1 ms'lik HARQ gidiş-dönüşü içinde dekorele oluyor. Sonuç:
+
+- **Uplink belirgin kötüleşiyor**: BLER 0 → ~%10 (sürekli, spike değil), ~62 HARQ
+  yeniden iletimi. Kapalı-döngü güç kontrolü ve kanal kestirimi bu hızlı fade'i
+  izleyemiyor; ortalama PUSCH SNR korunsa da anlık dipler NACK üretiyor.
+- **Downlink çok daha az etkileniyor** (BLER ~%2): DL'in SINR marjı devasa (CQI
+  tavanında), derin bir fade bile MCS eşiğinin altına inmiyor.
+- **Bağlantı kopmuyor**: HARQ her şeyi toparlıyor (`ulsch_errors 0`,
+  `dlsch_errors 0`), 90 sn boyunca 0 out-of-sync.
+
+Bu, bir değişkenin **güvenilir bir metriği** (UL BLER + HARQ dağılımı) net
+şekilde oynatan ilk deney — SINR'ın CQI tavanında raillenmesi bu ölçümü
+gölgelemiyor çünkü etki HARQ katmanında görünüyor.
+
+**Sonuç**: ✅ Hipotez doğrulandı — hızlı UE → hızlı fade → UL BLER 0 → ~%10,
+~62 yeniden iletim. Link ayakta kalıyor (HARQ toparlıyor), DL marjı yüksek
+olduğu için DL neredeyse etkilenmiyor.
