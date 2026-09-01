@@ -3265,3 +3265,31 @@ Regresyon: O2I kapalıyken baz senaryo etkilenmedi (RRC bağlanıyor, temiz).
 
 **Sonuç**: Bug düzeltildi. Deney 7 yeniden koşuldu (bkz. Test Günlüğü) — sonuç
 yönü değişmedi (O2I linki bozuyor) ama artık her koşu içinde tutarlı/gürültüsüz.
+
+---
+
+### Adım 42 — `HAPS_DEBUG_LOS_SWEEP` — TR 38.811 LOS olasılık tablosu için doğrulama aracı
+
+Deney 13'te "kentsel senaryoda düşük açıda link neden bu kadar sık kopuyor?"
+sorusunu netleştirmek için, `is_los` çekiminin gerçekten Tablo 6.6.1-1'in
+olasılıklarını üretip üretmediğini kontrol eden bir araç eklendi.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_propagation.c`
+`+ Eklendi:` `haps_38811_los_prob_selfcheck()` — `HAPS_DEBUG_LOS_SWEEP=1` set
+ise, ilk yol-kaybı çağrısında bir kez çalışır: her senaryo (banliyö/kentsel/
+yoğun kentsel) × her referans yükseklik açısı (10…90°) için `uniformrandom() <
+haps_38811_los_prob[sc][e]` çekimini **200 000 kez** yapıp ölçülen P(LOS)'u
+tablo değeriyle yan yana basar. Env var set değilse hiçbir etkisi yok (`static
+bool done` + `getenv` guard).
+`# Gerekçe:` `is_los = uniformrandom() < prob` satırı bariz doğru görünüyor ama
+`uniformrandom()`'un gerçekten düzgün dağılımlı olduğunu ve tablo indekslemesinin
+doğru olduğunu ölçerek doğrulamak, düşük-açı deneylerinin (D2/D8/D9/D11/D13)
+sonuçlarına güvenmek için gerekliydi.
+
+**Doğrulama (bkz. Test Günlüğü Deney 14)**: 27 hücrenin (3 senaryo × 9 açı)
+**hepsi** tabloyla **±0.002** içinde eşleşti. DL ve UL kanal nesneleri ayrı ayrı
+çalıştırıldı, ikisi de eşleşti. `is_los` çekimi doğru.
+
+**Sonuç**: Düşük-açı deneylerindeki yüksek NLOS oranları (D11'de 7/8, D13'te
+düşük açıda ~%50) gerçek — kod bug'ı değil, TR 38.811'in kentsel/yoğun-kentsel
+için öngördüğü LOS olasılıklarının doğru uygulanması.

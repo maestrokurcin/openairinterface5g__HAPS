@@ -1000,3 +1000,45 @@ senaryoda aynı (`20·log₁₀(sin θ)`). Kentsel iki şey ekliyor: (a) her
 gerçekleşimde ~±8 dB gölgeleme belirsizliği, (b) ~40°'nin altında hızla artan
 NLOS olasılığı → düşük açıda kentsel HAPS linki "kademeli zayıflar" değil,
 "çoğu zaman ölü, ara sıra çalışır" davranıyor.
+
+---
+
+### Deney 14 — LOS olasılık tablosu doğrulaması (`HAPS_DEBUG_LOS_SWEEP`)
+
+- **Tarih**: 2026-09-01
+- **Amaç**: Deney 13'te kentsel düşük açıda link çok sık koptu — bu, TR 38.811
+  Tablo 6.6.1-1'in gerçekten uygulandığı anlamına mı geliyor, yoksa bir bug mı?
+- **Yöntem**: Adım 42'de eklenen `HAPS_DEBUG_LOS_SWEEP=1` aracı — her senaryo ×
+  her referans açı için `is_los` çekimini 200 000 kez yapıp ölçülen P(LOS)'u
+  tabloyla karşılaştırıyor. Tek koşu, ~25 sn.
+
+**Ölçülen P(LOS) vs Tablo 6.6.1-1** (200k çekim/hücre)
+
+| Açı | Banliyö ölç. (tablo) | Kentsel ölç. (tablo) | Yoğun kentsel ölç. (tablo) |
+|---|---|---|---|
+| 10° | 0.781 (0.782) | 0.246 (0.246) | 0.281 (0.282) |
+| 20° | 0.869 (0.869) | 0.384 (0.386) | 0.331 (0.331) |
+| 30° | 0.919 (0.919) | 0.493 (0.493) | 0.398 (0.398) |
+| 40° | 0.929 (0.929) | 0.614 (0.613) | 0.468 (0.468) |
+| 50° | 0.935 (0.935) | 0.725 (0.726) | 0.537 (0.537) |
+| 60° | 0.940 (0.940) | 0.805 (0.805) | 0.613 (0.612) |
+| 70° | 0.949 (0.949) | 0.918 (0.919) | 0.740 (0.738) |
+| 80° | 0.952 (0.952) | 0.968 (0.968) | 0.821 (0.820) |
+| 90° | 0.998 (0.998) | 0.992 (0.992) | 0.981 (0.981) |
+
+**Yorum**
+
+**27 hücrenin hepsi tabloyla ±0.002 içinde eşleşiyor** — `is_los = uniformrandom()
+< haps_38811_los_prob[...]` doğru çalışıyor, `uniformrandom()` düzgün dağılımlı,
+tablo indekslemesi doğru. DL ve UL kanal nesneleri ayrı ayrı çalıştırıldı, ikisi
+de eşleşti.
+
+Bu, önceki düşük-açı deneylerinin (D2, D8, D9, D11, D13) yüksek NLOS oranlarının
+**gerçek olduğunu** doğruluyor — kod bug'ı değil, TR 38.811'in kendisinin
+kentsel/yoğun-kentsel için öngördüğü davranış:
+- Kentsel 30°: LOS olasılığı **%49** → link yarı yarıya kopar
+- Yoğun kentsel 30°: LOS olasılığı **%40** → çoğunlukla kopar (D11 = 7/8 NLOS)
+- Banliyö 10°'de bile %78 LOS — banliyö bu yüzden düşük açıda çok daha dayanıklı
+
+**Sonuç**: ✅ LOS/NLOS çekimi doğrulandı. Düşük-açı senaryolarındaki başarısızlık
+oranları modelin doğru davranışı, TR 38.811 spesifikasyonunun beklediği şey.
