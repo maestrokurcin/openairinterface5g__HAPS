@@ -1,7 +1,7 @@
-# HAPS Kanal Modeli — RF-Sim Deney Günlüğü
+# HAPS Kanal Modeli — Test Günlüğü (RF-Sim Deneyleri)
 
 Bu doküman, HAPS kanal bloğu **tasarımı bittikten sonra** rfsimulator üzerinde
-yapılan **senaryo denemelerini** kaydeder. Her deneyde tek bir şey değiştirilir
+yapılan **senaryo testlerini / denemelerini** kaydeder. Her deneyde tek bir şey değiştirilir
 (örn. `urban` yerine `suburban`, ya da `HAPS_UE_SPEED_MPS=0` yerine `30`),
 sonuç ölçülür ve **neden öyle olduğu** yorumlanır.
 
@@ -12,7 +12,7 @@ Diğer dokümanlarla ilişkisi:
 | `HAPS_MIMARI.md` | Kanal bloğunun nasıl çalıştığı (kod mimarisi) |
 | `HAPS_GELISTIRME_GUNLUGU.md` | Kodun **nasıl yazıldığı** — geliştirme adımları (Adım 1…37) |
 | `HAPS_CALISTIRMA_REHBERI.md` | Her senaryonun **nasıl çalıştırılacağı** (komutlar) |
-| **`HAPS_DENEY_GUNLUGU.md` (bu dosya)** | Kanal üzerinde yapılan **denemeler ve sonuçları** |
+| **`HAPS_TEST_GUNLUGU.md` (bu dosya)** | Kanal üzerinde yapılan **testler / denemeler ve sonuçları** |
 
 ---
 
