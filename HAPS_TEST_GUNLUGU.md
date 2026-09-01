@@ -951,3 +951,52 @@ en zorlu köşesini doğru şekilde "çalışmaz" olarak modelliyor.
 **evet** — LOS'ta `20·log₁₀(sin θ)` kadar (90→27° için ~6–7 dB), artı düşük
 açıda NLOS olasılığının getirdiği ~30 dB'lik ayrı bir basamak. Kanal modeli
 serbest-uzay geometrisini birebir doğru üretiyor.
+
+---
+
+### Deney 13 — netgain ↔ yükseklik açısı süpürmesi, kentsel senaryo
+
+- **Tarih**: 2026-09-01
+- **Değişen (Deney 12'ye göre)**: senaryo `SUBURBAN_RURAL` → `URBAN`
+- **Yöntem**: aynı — 7 offset noktası, `HAPS_DEBUG_38811=1`'den `netgain`/`elev`.
+  Düşük açı noktalarında 3-4 koşu (LOS olasılığı düştüğü için).
+
+**Ölçülen** (offset km, yükseklik açısı, ölçülen LOS netgain, FSPL teorisi)
+
+| offset | açı | LOS netgain (ort) | LOS aralık | FSPL teorisi | LOS / toplam koşu |
+|---|---|---|---|---|---|
+| 0 | 78.7° | −10.2 | — | −6.2 | 1/1 |
+| 5 | 65.8° | −3.9 | — | −6.8 | 1/1 |
+| 10 | 55.0° | −2.4 | — | −7.7 | 1/1 |
+| 15 | 46.5° | −9.4 | **−16.5 … −4.2** | −8.8 | 4/4 |
+| 20 | 39.8° | −17.8 | (1 örnek) | −9.9 | 1/1 |
+| 25 | 34.6° | −13.2 | (1 örnek) | −10.9 | **1/4** |
+| 35 | 27.1° | −10.6 | −11.4 … −9.8 | −12.8 | **2/4** |
+
+NLOS çekilen koşular: netgain −39 … −50 dB (link ölü).
+
+**Yorum — Deney 12 (banliyö) ile karşılaştırma**
+
+| | Banliyö (D12) | Kentsel (D13) |
+|---|---|---|
+| **FSPL eğimi** | `−6 + 20·log₁₀(sin θ)` | **aynı** — geometri senaryodan bağımsız |
+| **LOS netgain saçılması** (tek koşu) | teoriden ±1 dB | teoriden **−8 … +5 dB** |
+| **LOS `sigma_SF`** | 0.7–1.8 dB | **4.0 dB** (tüm açılarda sabit) |
+| **LOS olasılığı @ 27°** | ~0.93 | **~0.49** |
+| **Düşük açıda deneyim** | çoğunlukla LOS, kademeli | LOS/NLOS piyangosu |
+
+1. **FSPL yasası aynı**: LOS-ortalama netgain 78°→27° arası ~−6 → ~−13 dB, tıpkı
+   banliyö gibi ~7 dB'lik eğik-mesafe eğimi. Geometri senaryoya bakmıyor.
+2. **Ama kentsel saçılması ~4×**: `sigma_SF = 4 dB` sabit → tek bir donmuş
+   çekim teoriden ±8 dB sapabiliyor. 15 km noktasında 4 koşu −4.2, −8.0, −8.8,
+   −16.5 verdi — **tek bir açıda 12 dB yayılma**. Ortalama teoriye yakınsıyor
+   ama tek koşu güvenilmez.
+3. **LOS olasılığı ~40°'nin altında çöküyor**: 34° → 1/4 LOS, 27° → 2/4 LOS.
+   Banliyö 10°'ye kadar >0.9'da kalıyordu; kentsel ~27°'de zaten yazı-tura.
+   NLOS çekildiğinde netgain −40…−50 → link ölü.
+
+**Sonuç**: ✅ Yükseklik-açısı ↔ SNR ilişkisinin **geometrik omurgası** her iki
+senaryoda aynı (`20·log₁₀(sin θ)`). Kentsel iki şey ekliyor: (a) her
+gerçekleşimde ~±8 dB gölgeleme belirsizliği, (b) ~40°'nin altında hızla artan
+NLOS olasılığı → düşük açıda kentsel HAPS linki "kademeli zayıflar" değil,
+"çoğu zaman ölü, ara sıra çalışır" davranıyor.
