@@ -84,26 +84,80 @@ Bir deneyde bakılacak alanlar:
 
 ## 3. Baz (referans) senaryo
 
-> **DOLDURULACAK** — ilk temiz koşudan sonra bu tabloyu gerçek rakamlarla doldur.
-> Bundan sonraki her deney "baz senaryoya göre şu değişti" diye buna atıf yapar.
+> Kalibre edildi: **2026-09-01**. Bundan sonraki her deney "baz senaryoya göre şu
+> değişti" diye buna atıf yapar. Yeniden ölçülürse tarih ve rakamlar güncellenir.
+
+### 3.1 Konfigürasyon
 
 | Öğe | Değer |
 |---|---|
 | gNB config | `gnb.haps_mobile_ntn_38811.conf` |
 | UE config | `nrue.haps_mobile_ntn_38811.conf` |
 | Kanal modeli | `HAPS_MOBILE_38811` (kırsal/banliyö, `HAPS_38811_SUBURBAN_RURAL`) |
-| Bant / SCS / PRB | band 254 / µ=1 / 25 PRB |
-| Platform | 20 km, 2 km yörünge, ~100 km/h |
-| `HAPS_UE_SPEED_MPS` | (varsayılan 3 km/h) |
-| `HAPS_GROUND_OFFSET_M` | 0 (zenit altı) |
+| Bant / SCS / PRB | band 254 (S-bandı, SSB ~2.4886 GHz) / **µ=0 (15 kHz)** / 25 PRB / TDD |
+| NTN | gerçek `ntn_Config_r17` + SIB19, `cellSpecificKoffset_r17 = 1`, `positionZ-r17 ≈ 20 km` |
+| Platform | 20 km yükseklik, 2 km yörünge yarıçapı, ~100 km/h loiter |
+| `HAPS_UE_SPEED_MPS` | (ayarlanmadı — koddaki varsayılan) |
+| `HAPS_GROUND_OFFSET_M` | 0 (zenit altı, yükseklik açısı ~90°) |
 | Yağmur / O2I / alt-TDL-profil | kapalı |
-| Çalıştırma süresi | ___ sn |
-| **Ölçülen — RSRP** | ___ dBm |
-| **Ölçülen — SINR** | ___ dB |
-| **Ölçülen — DL MCS / BLER / goodput** | ___ / ___ / ___ Mbps |
-| **Ölçülen — UL MCS / BLER / goodput** | ___ / ___ / ___ Mbps |
-| **RRC bağlantısı** | ___ (kaçıncı RA denemesinde) |
-| **60 sn'de kopma sayısı** | ___ |
+| Derleme | `ninja rfsimulator nr-softmodem nr-uesoftmodem`, develop @ `dfe5bd4786` |
+| Çalıştırma | gNB başlat → 12 sn bekle → UE başlat → ~90 sn |
+| Trafik | **Yok** — bu makinede AMF/5GC bağlı değil; bağlantı RRC_CONNECTED'te kalıyor, sadece SRB1 keepalive taşınıyor |
+
+### 3.2 Ölçülen sonuç
+
+| Metrik | Değer | Not |
+|---|---|---|
+| RA sonucu | ✅ **ilk denemede** başarılı | gNB'nin RA-timing'den kalan mesafe tahmini ~390 m (NTN açık-döngü ön-telafisi çalışıyor) |
+| RRC bağlantısı | ✅ `NR_RRC_CONNECTED`, `RRCSetupComplete` | UE frame 8'de senkron |
+| Kopma / out-of-sync | **0** (tüm ~90 sn boyunca `in-sync`) | 0 re-sync, 0 RA-fail |
+| DL HARQ turları | `166/0/0/0` | hiç yeniden iletim yok |
+| UL HARQ turları | `1652/0/0/0` | hiç yeniden iletim yok |
+| DL BLER | ≈ 0 (`0.00001`) | `dlsch_errors 0` |
+| UL BLER | 0 (`0.00000`) | `ulsch_errors 0`, `ulsch_DTX 0` |
+| gNB PUSCH SNR | ~16.3 dB (hedefin +1.3 dB üstü) | kararlı |
+| gNB PUCCH SNR | ~22 dB | kararlı |
+| UE-bildirimli DL SINR (`average SINR`) | medyan **+0.4 dB**, ort. ~0 dB, %25–%75: −2.7 … +3.2 dB, aralık **−16.6 … +12.0 dB** | loiter geometrisi + NTN-TDL küçük-ölçekli sönümleme yüzünden çok oynak |
+| TR 38.811 büyük-ölçek yol kaybı | ~30–31 dB | ~2 GHz, 20 km, zenit; sönümleme dahil anlık değer ~6 … 33 dB arası salınıyor |
+| DL tek-yön gecikme | ~0.067 ms | çok kararlı (0.0671–0.0672 ms) |
+| Doppler (SAT→UE) | ~21 Hz | HAPS platformu + yavaş UE, ihmal edilebilir |
+| DL/UL MCS | 0 / 0 | **anlamlı değil** — trafik yok |
+| DL/UL goodput | 0 / 0 Mbps | **anlamlı değil** — trafik yok |
+| UE RNTI (bu koşu) | `c964` | referans için |
+
+### 3.3 Yorum
+
+- **Bağlantı sağlığı mükemmel**: RA ilk denemede geçti, ~90 sn boyunca tek bir
+  kopma/yeniden iletim yok, DL ve UL BLER sıfıra yakın. Kanal bloğu "temiz
+  kırsal/banliyö HAPS" senaryosunda bir bağlantıyı kurup taşıyabiliyor.
+- **UE-bildirimli DL SINR düşük ve çok oynak** (−16 … +12 dB) ama bu **beklenen**:
+  `HAPS_MOBILE_38811` hem loiter yörüngesinin geometrik değişimini hem de NTN-TDL
+  küçük-ölçekli sönümlemeyi uyguluyor; wideband CSI SINR bunu birebir yansıtıyor.
+  BLER'in yine de sıfır kalması, ölçülen anlık SINR'ın kod hızı marjının altına
+  yeterince uzun süre düşmediğini gösteriyor (SRB trafiği düşük MCS'te robust).
+- **MCS ve goodput bu kurulumda ölçülemiyor**: AMF/5GC bağlı olmadığı için PDU
+  oturumu açılmıyor, kullanıcı-düzlemi IP trafiği yok. Karşılaştırmalarda
+  MCS/goodput yerine **SINR dağılımı, yol kaybı, BLER, HARQ tur dağılımı ve kopma
+  sayısı** kullanılacak. Gerçek verim ölçümü istenirse ayrı bir adımda tam
+  docker/5GC yığını ya da `--phy-test` modu kurulmalı.
+- **RSRP dBm olarak loglanmıyor**: bu conf'ta periyodik CSI-RS RSRP raporlaması
+  yok; UE yalnızca ilk PBCH senkronunda ham bir `rsrp` değeri basıyor. Yol
+  kaybını temsilci metrik olarak `HAPS_DEBUG_38811=1` çıktısındaki
+  `net ploss_dB` kullanılacak.
+
+### 3.4 Yeniden üretme komutları
+
+```
+# Derleme
+cd /home/furkan/openairinterface5g/cmake_targets
+ninja -C ran_build/build rfsimulator nr-softmodem nr-uesoftmodem
+
+# Terminal 1 — gNB
+MALLOC_ARENA_MAX=1 ./ran_build/build/nr-softmodem -O ../haps_test/gnb.haps_mobile_ntn_38811.conf --rfsim
+
+# Terminal 2 — UE (gNB'den ~12 sn sonra)
+MALLOC_ARENA_MAX=1 ./ran_build/build/nr-uesoftmodem -O ../haps_test/nrue.haps_mobile_ntn_38811.conf --rfsim
+```
 
 ---
 
@@ -195,16 +249,17 @@ Kopyala-yapıştır, her yeni deney için:
 
 | Metrik | Baz senaryo | Bu deney | Δ |
 |---|---|---|---|
-| RSRP (dBm) | | | |
-| SINR (dB) | | | |
-| DL MCS | | | |
-| DL BLER | | | |
-| DL goodput (Mbps) | | | |
-| UL MCS | | | |
-| UL BLER | | | |
-| UL goodput (Mbps) | | | |
-| RRC bağlantısı | | | |
-| Kopma sayısı | | | |
+| `net ploss_dB` (büyük-ölçek, ~dB) | ~30–31 | | |
+| UE-bildirimli DL SINR: medyan / aralık (dB) | +0.4 / −16.6…+12.0 | | |
+| gNB PUSCH SNR (dB) | ~16.3 | | |
+| DL BLER | ≈0 | | |
+| UL BLER | 0 | | |
+| DL HARQ turları | 166/0/0/0 | | |
+| UL HARQ turları | 1652/0/0/0 | | |
+| RA sonucu | ilk denemede ✅ | | |
+| RRC bağlantısı | ✅ CONNECTED | | |
+| Kopma sayısı (~90 sn) | 0 | | |
+| _(trafik varsa)_ DL/UL MCS, goodput | N/A (5GC yok) | | |
 
 **Yorum**
 
@@ -220,4 +275,4 @@ Beklenmedik bir şey varsa: neden olabilir, hangi dosyaya bakılmalı?>
 
 <!-- Yeni deneyler buraya, kronolojik sırayla eklenir. En yenisi en altta. -->
 
-_(Henüz deney yok — ilk koşu baz senaryoyu kalibre etmek için: Bölüm 3'ü doldur.)_
+_(Henüz deney yok. Baz senaryo Bölüm 3'te kalibre edildi — Deney 1 buradan başlar.)_
