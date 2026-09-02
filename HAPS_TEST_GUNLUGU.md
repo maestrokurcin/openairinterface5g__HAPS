@@ -1366,3 +1366,87 @@ saçılması). Deney 11'in düşük-açı felaketi bir senaryo cezası değil, s
 LOS-olasılığı/geometri etkisiydi. 6 koşunun 2'sinde UE senkron olamadı — bu
 makinenin bilinen yavaş-senkron kararsızlığı (kanalla ilgisiz; iki koşu da LOS
 ve en iyi netgain'lere sahipti).
+
+---
+
+### Deney 20 — Yağmur + düşük yükseklik açısı birlikte
+
+- **Tarih**: 2026-09-02
+- **Referans**: Deney 12'nin 35 km offset noktası (banliyö, yükseklik açısı
+  ~27.1°, LOS netgain ~−12.8 dB, yağmursuz) + Deney 3 (yağmur S-bandında zenit'te
+  ihmal edilebilir: 25 mm/h → ~0.013 dB).
+- **Değişen tek şey (referansa göre)**: `HAPS_RAIN_RATE_MM_H` = yok → 50 → 100.
+  Geometri sabit: `HAPS_GROUND_OFFSET_M=35000` (~27.1°), banliyö.
+- **Amaç**: Düşük açıda eğik yol ~2× uzadığı için (yağmur katmanı yol uzunluğu
+  `L_eff = 3 km / sin θ`), yağmur + düşük açı **birleşimi** S-bandında anlamlı
+  bir ek kayıp yaratır mı? Yoksa iki etki bağımsız mı kalıyor?
+- **Süre**: kondisyon başına 3 kısa koşu (~28 sn, `HAPS_DEBUG_38811=1
+  HAPS_DEBUG_RAIN_INTERNAL=1`, debug satırı için) + 27°'de 8 tam bağlantı koşusu
+  (3 yağmursuz + 3×100 mm/h; senkron oranı bu makinede düşük açıda düşük).
+
+**Ölçülen — yağmur kaybı (uplink kanal nesnesi, f=1.615 GHz — bkz. not)**
+
+| Yağmur | `L_eff` | `gamma_R` (dB/km) | **yağmur kaybı** | Deney 3 (zenit, referans) |
+|---|---|---|---|---|
+| 50 mm/h @ 27.1° | 6.574 km | 0.002526 | **0.017 dB** | (25 mm/h zenit: 0.013 dB) |
+| 100 mm/h @ 27.1° | 6.574 km | 0.004916 | **0.032 dB** | — |
+
+Zenit'e göre `L_eff` 3.06 → 6.57 km (2.15×) uzuyor, ama zaten mikroskobik bir
+sayıyı ikiye katlamak hâlâ mikroskobik: **100 mm/h tropik sağanakta bile
+27°'de yağmur kaybı 0.032 dB**.
+
+**netgain (yalnızca LOS koşular) — yağmur farkı gölge-sönümlemenin altında**
+
+| Kondisyon | netgain koşuları | ort |
+|---|---|---|
+| yağmursuz | −12.62, −13.59, −11.86 | −12.7 |
+| 50 mm/h | −11.85, −13.60, −12.18 | −12.5 |
+| 100 mm/h | −12.97, −13.35 (+ 1 NLOS: −31.1) | −13.2 |
+
+Üç kondisyonun netgain aralıkları tamamen üst üste biniyor — hepsi `sigma_SF =
+1.14 dB` gölge-sönümleme çekiminin içinde. Yağmurun 0.017–0.032 dB katkısı
+gürültüden ayırt edilemiyor. (100 mm/h setindeki NLOS koşu piyango — banliyö
+27°'de ~%92 LOS, o koşuda `CL=18.42 dB` NLOS clutter loss çekildi, yağmurla
+ilgisi yok — o satırda da yağmur yine 0.032 dB.)
+
+**Tam bağlantı koşuları (27°, ~95 sn)**
+
+| Koşu | yağmur | senkron | RRC | kopma | HARQ (DL/UL) | DL/UL BLER | avg SINR |
+|---|---|---|---|---|---|---|---|
+| fullnorain_1 | — | ✅ | ✅ | 0 | 30/0/0/0, 288/0/0/0 | %0.5 / %0 | +34.0 |
+| fullnorain_2/3 | — | ❌ (95 sn) | — | — | — | — | — |
+| fullrain100_2 | 100 | ❌ (95 sn) | — | — | — | — | — |
+| fullrain100_3 | 100 | ✅ | ✅ | 0 | 7/0/0/0, 56/0/0/0 | %5.9 / %0.05 | +37.4 |
+| full_rain100 | 100 | ❌ (95 sn) | — | — | — | — | — |
+
+Senkron olan 2 koşu (biri yağmursuz, biri 100 mm/h): ikisi de ilk denemede RRC,
+**0 kopma, 0 yeniden iletim**. SINR ~34–37 — zenit'in ~+40'ından ~5 dB düşük,
+bu tamamen FSPL geometrisinden (netgain ~−13 vs zenit ~−6). Yağmurlu ve
+yağmursuz bağlanan koşular arasında anlamlı fark yok. Senkron olamayan 5 koşu:
+hepsi LOS ve sağlıklı netgain (−11.8…−13.0) — makinenin bilinen yavaş-senkron
+sorunu, düşük açıda daha sık tetikleniyor (marj ~5 dB daha ince) ama yağmurdan
+bağımsız (yağmursuz koşularda da oldu).
+
+**Not — band 254'ün UL/DL çift ayrımı**: band 254 NTN band'inde UL frekansı
+1.6149 GHz, DL 2.4886 GHz (−873.5 MHz offset). Uplink kanal nesnesi atmosferik
+kaybı kendi frekansında (1.615 GHz) hesaplıyor, downlink kendi frekansında
+(2.489 GHz) — yani her yön kendi frekansını kullanıyor (doğru davranış).
+S-bandında 1.6 ↔ 2.5 GHz arası yağmur farkı zaten ihmal edilebilir.
+
+**Yorum**
+
+- **Yağmur + düşük açı birleşiminde sürpriz yok.** Toplam düşük-açı kaybı =
+  FSPL geometri cezası (~7 dB, `20·log₁₀(sin 27°)`) + gaz (~0.09 dB) + yağmur
+  (≤0.03 dB). Üç terim toplanıyor, birbirlerini büyütmüyorlar.
+- **S-bandında yağmuru büyütecek bir düşük-açı terimi yok**: troposferik
+  sintilasyon TR 38.811'in kendi kuralıyla (<6 GHz) tam 0 (`scint=0.000dB` her
+  koşuda), yani düşük açıda "yağmur + sintilasyon birlikte kötüleşir" senaryosu
+  S-bandında oluşmuyor. Bu birleşim ancak Ka-bandında anlamlı olurdu.
+- **Pratik sonuç**: HAPS S-bant linki için yağmur, en kötü açı + en şiddetli
+  yağış kombinasyonunda bile link bütçesinde yuvarlama hatası mertebesinde.
+  Deney 3'ün "S-bandında yağmur ihmal edilebilir" sonucu düşük açıda da geçerli.
+
+**Sonuç**: ✅ Hipotez (birleşim etkisi) çürütüldü — yağmur ve düşük yükseklik
+açısı S-bandında bağımsız, toplanır etkiler; birleşimleri 100 mm/h'te bile
+0.03 dB'lik yağmur katkısından fazlasını getirmiyor. Bağlantı, senkron
+kurulduğunda yağmurlu/yağmursuz aynı derecede kararlı.
