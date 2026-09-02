@@ -201,7 +201,9 @@ yönde değişmesini beklediğimiz — deneyin işi bunu doğrulamak ya da çür
 |---|---|---|
 | UE'yi sabitle | `HAPS_UE_SPEED_MPS=0` | Küçük-ölçekli sönümleme donar → BLER daha kararlı, kopma yok |
 | Hızlı UE | `HAPS_UE_SPEED_MPS=30` (108 km/h) | Doppler yayılımı↑ → daha hızlı fade → BLER↑, ara sıra kopma |
-| Sabit platform | `HAPS_STATIONARY_38811*` config | Platform Doppler'i yok, sadece UE Doppler'i |
+| Platformu dondur (temiz) | `HAPS_PLATFORM_SPEED_MPS=0 HAPS_LOITER_RADIUS_M=0` | Platform hareketi (loiter Doppler'i + zamanla değişen gecikme) kapanır; NTN-TDL sönümleme + saniyelik yol-kaybı/SIB19 tazelemesi aynen kalır (Adım 44). Tek değişkenli. |
+| Loiter yarıçapı / hızı ayarla | `HAPS_LOITER_RADIUS_M=1000` / `HAPS_PLATFORM_SPEED_MPS=55` | Yalnızca `HAPS_MOBILE*` ailesinde; loiter geometrisi/Doppler'i ölçekler |
+| Sabit platform (kaba) | `HAPS_STATIONARY_38811*` config | Platform Doppler'i yok — ama küçük-ölçekli sönümlemeyi ve `channel_length`'i de değiştirir, bu yüzden tek-değişkenli değil (bkz. Deney 18) |
 
 ### 4d. Atmosfer (env var ile)
 
@@ -1223,3 +1225,65 @@ içinden bağlı el terminali = imkânsız.
 **Sonuç**: ✅ Hipotez doğrulandı — `HAPS_O2I_THERMAL=1` giriş kaybını ~2×'e
 çıkarıyor (~29 → ~56 dB medyan). Model P.2109 bina sınıfı ayrımını doğru
 uyguluyor.
+
+---
+
+### Deney 18 — Platform hareketi (loiter Doppler'i + zamanla değişen gecikme) açık/kapalı
+
+- **Tarih**: 2026-09-02
+- **Değişen tek şey**: `HAPS_PLATFORM_SPEED_MPS=0 HAPS_LOITER_RADIUS_M=0` —
+  platform 2 km yarıçaplı ~100 km/h loiter çemberinde uçmak yerine kapsama
+  merkezinin tam üstünde (zenit) donuk duruyor. NTN-TDL sönümleme, saniyelik
+  TR 38.811 yol-kaybı hesabı ve SIB19 tazelemesi kod yolu aynen aktif kalıyor
+  (bunları `HAPS_STATIONARY_38811` enum'una geçmek de kapatırdı — bkz. Adım 44
+  gerekçesi, o yüzden bu deney için env-var knob'u eklendi).
+- **Amaç**: HAPS platformunun kendi hareketinin (küçük Doppler + çok yavaş
+  gecikme kayması) link kalitesine ölçülebilir bir etkisi var mı? (Bulgu #4
+  "platform Doppler'i küçük" diyordu — bunu tek-değişkenli olarak doğrula.)
+- **Config**: baz senaryo (`gnb/nrue.haps_mobile_ntn_38811.conf`, banliyö,
+  `HAPS_MOBILE_38811`, S-bandı, µ=0, 25 PRB, NTN+SIB19, zenit)
+- **Süre**: her koşu gNB→12 sn→UE→95 sn; her kol için 3 koşu (LOS/gölge-sönümleme
+  çekimi koşu-başına farklı). `HAPS_DEBUG_38811=1`, `MALLOC_ARENA_MAX=1`.
+
+**Ölçülen**
+
+| Kol | Koşu | LOS? | netgain (dB) | Doppler UE→SAT (Hz) | tek-yön gecikme (ms) | RA | kopma | DL HARQ | UL HARQ | DL BLER | UL BLER | avg SINR |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **loiter (baz)** | 1 | LOS | −5.75 | 0.1 … 5.1 | 0.06799 → 0.06803 (kayan) | ✅ ilk | 0 | 21/0/0/0 | 200/0/0/0 | %1.4 | %0 | +39.8 |
+| | 2 | LOS | −7.19 | 0.05 … 6.5 | 0.06797 → 0.06803 | ✅ ilk | 0 | 29/0/0/0 | 279/0/0/0 | %0.6 | %0 | +39.9 |
+| | 3 | LOS | −5.43 | 0.09 … 5.5 | 0.06799 → 0.06803 | ✅ ilk | 0 | 24/0/0/0 | 228/0/0/0 | %1.0 | %0 | +39.8 |
+| **donuk (zenit)** | 1 | LOS | −6.98 | **0.000** (tam) | **0.066713** (sabit, kayma yok) | ✅ ilk | 0 | 24/0/0/0 | 228/0/0/0 | %1.0 | %0 | +40.0 |
+| | 2 | LOS | −6.87 | **0.000** | **0.066713** (sabit) | ✅ ilk | 0 | 25/0/0/0 | 240/0/0/0 | %0.9 | %0 | +39.9 |
+| | 3 | LOS | −5.74 | **0.000** | **0.066713** (sabit) | ✅ ilk | 0 | 22/0/0/0 | 208/0/0/0 | %1.2 | %0 | +39.5 |
+
+**Yorum**
+
+1. **Gözlemlenebilir hiçbir fark yok.** Her iki kolda da 3/3 koşu ilk denemede
+   RRC bağlanıyor, 0 kopma, 0 yeniden iletim (`x/0/0/0`), UL BLER tam 0, DL BLER
+   ~%1 (bilinen kalıntı — MCS-0'ın gürültü tabanındaki decode hataları, trafik
+   yok; bkz. Deney 10/16), SINR CQI tavanında (~+39.8). netgain aralıkları
+   (loiter −5.4…−7.2, donuk −5.7…−7.0) tamamen üst üste biniyor — fark
+   donmuş gölge-sönümleme çekiminden, platform hareketinden değil.
+
+2. **Platform Doppler'i gerçekten ihmal edilebilir.** Loiter kolunda ölçülen
+   Doppler bu koşularda yalnızca **0–7 Hz** (loiter çemberinin o anki fazına
+   bağlı; teorik tavan `r·ω/c·fc = 2000·0.0139/c·2.4886e9 ≈ 230 Hz`, çember
+   periyodu ~452 sn olduğu için 95 sn'lik koşu tam turu görmüyor). NTN açık-döngü
+   ön-telafisi + kapalı-döngü TA bunu tamamen yutuyor. Donuk kolda Doppler tam
+   olarak 0.000.
+
+3. **Gecikme kayması de ihmal edilebilir.** Loiter kolunda tek-yön gecikme
+   95 sn boyunca yalnızca ~0.0680 → 0.0680 ms (birkaç **nanosaniye**) kayıyor;
+   donuk kolda tam sabit. (Donuk koldaki 0.0667 ms, loiter'daki ~0.0680 ms'den
+   biraz **daha kısa** — çünkü donuk platform tam zenitte 20.00 km'de, loiter
+   çemberinin merkezi ise eksenden kaydırılmış → ortalama eğik mesafe ~20.4 km.
+   Bu bir **geometri** farkı, hareket etkisi değil; netgain'e etkisi gölge
+   sönümleme gürültüsünün altında kalıyor.)
+
+**Sonuç**: ✅ Bulgu #4 tek-değişkenli olarak doğrulandı — HAPS platformunun
+kendi loiter hareketi (≤~230 Hz Doppler, ns mertebesinde gecikme kayması) link
+üzerinde **ölçülebilir etki yaratmıyor**. Platformu tamamen dondurmak
+(`HAPS_PLATFORM_SPEED_MPS=0 HAPS_LOITER_RADIUS_M=0`) baz senaryoyla aynı sonucu
+veriyor. Bu, LEO'nun (~7.5 km/s yörünge hızı, kHz mertebesinde Doppler,
+`--cont-fo-comp` gerektiren) aksine HAPS'ın neredeyse-sabit doğasının pratik
+karşılığı.

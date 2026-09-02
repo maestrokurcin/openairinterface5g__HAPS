@@ -3333,3 +3333,50 @@ baz senaryo etkilenmedi (RRC bağlanıyor, temiz).
 
 **Sonuç**: Bug düzeltildi. `HAPS_UE_SPEED_MPS=0` artık her iki profilde de
 (LOS ve NLOS) geçerli bir donmuş sönümleme kanalı veriyor.
+
+---
+
+### Adım 44 — `HAPS_PLATFORM_SPEED_MPS` / `HAPS_LOITER_RADIUS_M` env var'ları (platform hareketini tek-değişkenli izole etmek için)
+
+**Motivasyon (Test Günlüğü Deney 18)**: "platform Doppler'i açık/kapalı" deneyini
+temiz yapmak istedik. Tek yol `HAPS_MOBILE_38811` → `HAPS_STATIONARY_38811` enum
+takası gibi görünüyordu, ama o takas aynı anda birden çok şeyi değiştiriyor:
+`enable_dynamic_delay`/`enable_dynamic_Doppler` false oluyor, `loiter_radius`/
+`platform_speed` 0 oluyor **ve ayrıca** `channel_length` 16→1, `nb_taps` 1,
+küçük-ölçekli NTN-TDL sönümleme tamamen devre dışı, yol kaybı da kanal
+oluşturulurken bir kez donduruluyor (Adım 27). Yani enum takası "platform
+hareketi" değil "tüm dinamik MOBILE hattı vs statik STATIONARY hattı"nı test
+ediyor — Deney disiplini kuralı 1'e (tek değişken) aykırı.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_config.c`
+`~ Değiştirildi:` `haps_config_new()` içinde, `mobile ? ... : ...` ile
+`loiter_radius`/`platform_speed` atandıktan hemen sonra iki opsiyonel runtime
+geçersiz-kılma eklendi:
+```c
+if (mobile && getenv("HAPS_PLATFORM_SPEED_MPS"))
+  ctx->platform_speed = atof(getenv("HAPS_PLATFORM_SPEED_MPS"));
+if (mobile && getenv("HAPS_LOITER_RADIUS_M"))
+  ctx->loiter_radius = atof(getenv("HAPS_LOITER_RADIUS_M"));
+```
+`# Gerekçe:` İkisini de 0 yapmak platformu kapsama merkezinin tam üstünde
+(zenit) donduruyor — loiter Doppler'i ve zamanla değişen eğik gecikme 0 oluyor —
+ama `HAPS_MOBILE*` modelinin geri kalanı (NTN-TDL sönümleme, `channel_length=16`,
+saniyelik `haps_38811_path_loss_dB()` + `nr_update_sib19()` tazelemesi) aynen
+çalışıyor. Böylece "platform hareketi" tek başına izole edilebiliyor. `HAPS_UE_
+SPEED_MPS` ile aynı isimlendirme kalıbı. Yalnızca `HAPS_MOBILE*` ailesi okuyor;
+`HAPS_STATIONARY*` zaten 0/0 ve öyle kalıyor. `haps_config.c` zaten `<stdlib.h>`
+dahil ediyor (getenv/atof mevcut) — ek include yok.
+`~ Not:` `haps_geometry.c`'de `w_haps = (loiter_radius > 0) ? speed/radius : 0`,
+yani `loiter_radius=0` → açısal hız 0, konum/hız zamanla sabit, Doppler tam 0 —
+`HAPS_STATIONARY` dosya-başı yorumundaki "degenerate to a fixed point" davranışı.
+
+**Doğrulama (Test Günlüğü Deney 18)**: `HAPS_PLATFORM_SPEED_MPS=0 HAPS_LOITER_
+RADIUS_M=0` ile 3 koşu → Doppler tam 0.000, tek-yön gecikme tam sabit
+(0.066713 ms), RRC ilk denemede bağlanıyor, 0 kopma, 0 yeniden iletim, BLER baz
+senaryoyla aynı (~%1 DL / %0 UL). Baz (loiter) kolu ile gözlemlenebilir fark yok.
+Regresyon yok: env var set edilmediğinde `getenv()` NULL → davranış birebir
+eskisi gibi.
+
+**Sonuç**: Deney 18 için tek-değişkenli "platform hareketi açık/kapalı" knob'u
+hazır. Kinematik parametrelerinin (loiter yarıçapı, hızı) çalışma zamanında
+taranabilmesi de bir yan fayda.

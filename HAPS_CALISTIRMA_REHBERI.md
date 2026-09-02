@@ -145,6 +145,7 @@ Herhangi bir komutun başına eklenebilir (env var, `MALLOC_ARENA_MAX=1` ile ayn
 | `HAPS_O2I_ENABLE=1` | O2I bina girişi kaybını devreye sokar |
 | `HAPS_TDL_USE_ALT_PROFILE=1` | NTN-TDL-A/C yerine B/D kullanır |
 | `HAPS_UE_SPEED_MPS=0` | Sönümlemeyi tamamen durdurur (varsayılan 3km/h yerine sabit) |
+| `HAPS_PLATFORM_SPEED_MPS=0 HAPS_LOITER_RADIUS_M=0` | Platformu zenitte dondurur (loiter Doppler'i + gecikme kayması 0); NTN-TDL sönümleme aktif kalır (Adım 44) — sadece `HAPS_MOBILE*` |
 
 Örnek (Senaryo 4'ü tüm debug izleriyle çalıştırma):
 ```
