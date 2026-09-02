@@ -1450,3 +1450,98 @@ S-bandında 1.6 ↔ 2.5 GHz arası yağmur farkı zaten ihmal edilebilir.
 açısı S-bandında bağımsız, toplanır etkiler; birleşimleri 100 mm/h'te bile
 0.03 dB'lik yağmur katkısından fazlasını getirmiyor. Bağlantı, senkron
 kurulduğunda yağmurlu/yağmursuz aynı derecede kararlı.
+
+---
+
+### Deney 21 — Yoğun kentsel NLOS oranının nicelendirilmesi (gerçek koşu istatistiği)
+
+- **Tarih**: 2026-09-02
+- **Amaç**: Deney 14 `HAPS_DEBUG_LOS_SWEEP` ile `is_los` çekiminin TR 38.811
+  Tablo 6.6.1-1'i 200k örnekle birebir ürettiğini kanıtlamıştı. Bu deney farklı
+  bir soruyu yanıtlıyor: **gerçek uçtan-uca koşularda** yoğun kentsel için
+  yükseklik açısına karşı (a) her yönde LOS çekme oranı, (b) DL ve UL çekimlerinin
+  bağımsızlığı, (c) bağlanma oranı — ve NLOS çekilince netgain dağılımı.
+- **Yöntem**: `gnb/nrue.haps_mobile_ntn_38811_dense_urban.conf`,
+  `HAPS_GROUND_OFFSET_M` ile 6 açı. Açı başına **10 kısa koşu** (~14 sn, senkron
+  beklenmedi): her koşudan gNB logundan **UL kanal** durumu + netgain, UE
+  logundan **DL kanal** durumu + netgain, ve RRC sonucu toplandı. Ayrıca 55°'de
+  **6 tam koşu** (~95 sn) bağlanma oranını doğrulamak için.
+- **Not — DL/UL bağımsız çizim**: `haps_38811_path_loss_dB()` `is_los`'u kanal
+  nesnesi başına bir kez çiziyor (`large_scale_drawn`), UE hareketsiz olduğu için
+  bağlantı boyunca donuk. gNB'nin UL kanal nesnesi ile UE'nin DL kanal nesnesi
+  **ayrı** çizim yapıyor → bir yön LOS, diğeri NLOS olabilir.
+
+**Ölçülen — açı başına (N=10 koşu, tek yön için UL+DL havuzu N=20)**
+
+| yük. açısı | tablo LOS `p` (bin) | ölçülen 1-yön LOS (N=20) | iki-yön-LOS (N=10) | bağlanma % (kısa) | LOS netgain ort | NLOS netgain (min…max) |
+|---|---|---|---|---|---|---|
+| 78.7° | 0.82 (80° bin) | %70 | %60 | %60 | −5.5 | −41 … −17 |
+| 65.8° | 0.74 (70°) | %85 | %70 | %70 | −6.9 | −44 … −32 |
+| 55.0° | 0.61 (60°) | %60 | %30 | %30 | −7.3 | −53 … −23 |
+| 46.5° | 0.54 (50°) | %40 | %0 | %20* | −7.9 | −47 … −19 |
+| 34.6° | 0.40 (30°) | %30 | %20 | %10 | −13.2 | −43 … −19 |
+| 27.1° | 0.40 (30°) | %40 | %10 | %10 | −14.5 | −76 … −30 |
+
+`*` 46.5°'de iki-yön-LOS 0/10 çıktı ama 2 koşu **sığ UL-NLOS** (netgain > −27 dB)
+ile yine de bağlandı — bkz. aşağıdaki 2. bulgu.
+
+Ölçülen 1-yön LOS oranları N=20'de ~%11 standart hatayla tablo değerleriyle
+uyumlu (sistematik sapma yok — Deney 14 zaten çizimin 200k örnekte birebir
+doğru olduğunu göstermişti; buradaki N=20 örnek daha gürültülü ama tutarlı).
+
+**Bulgular**
+
+1. **Bağlanma her zaman DL=LOS gerektiriyor, artı UL çok-derin-olmayan.** 66
+   koşunun tamamında: RRC=1 olan **her** koşuda DL=LOS (istisnasız). UL ise LOS
+   *veya sığ NLOS* olabiliyor: `netgain > ~−27 dB` olan 3 UL-NLOS koşu
+   (−23.4, −26.2, −23.9) bağlandı; `netgain < −30` olan hiçbir UL-NLOS
+   bağlanmadı. Bu, "DL çekimi senkronu belirler" notunu netleştiriyor —
+   DL-LOS **zorunlu**, UL'de ise yumuşak bir eşik var (sim'in ~+40 dB SINR
+   tavanı sığ NLOS'a pay bırakıyor).
+
+2. **DL ve UL çekimleri bağımsız.** İki-yön-LOS oranı ≈ (tek-yön LOS)²:
+   55°'de %40(UL) × %80(DL) ≈ %32 beklenen, %30 ölçülen. 34.6°'de
+   %30 × %30 ≈ %9 beklenen, %20 ölçülen (küçük N). Bir yön LOS + diğeri NLOS
+   koşuları bolca görüldü (a_10000_2/3, a_5000_4/8, …).
+
+3. **Bağlanma uçurumu (yoğun kentsel)**: ~65° üstünde iki-yön-LOS ~%70'lik bir
+   yazı-tura; 55°'de ~%30'a düşüyor; ~47°'nin altında çoğunlukla kaybedilen bir
+   piyango (%10–20). Deney 11'in 27°'de 0/8'i ve Deney 19'un zenit'te 4/6'sı bu
+   eğrinin iki ucu.
+
+4. **NLOS netgain açıyla derinleşiyor**: 78.7°'de NLOS −17…−41 dB; 27.1°'de
+   −30…−76 dB. Yani düşük açıda NLOS sadece daha olası değil, çekildiğinde daha
+   da ölü. Deney 15 ile tutarlı.
+
+**55°'de tam koşu doğrulaması (21b, 6× ~95 sn)**
+
+| koşu | UL | DL | RRC |
+|---|---|---|---|
+| b_1 | LOS/−9.1 | LOS/−8.6 | ✅ |
+| b_2 | NLOS/−22.4 | NLOS/−36.8 | ❌ |
+| b_3 | LOS/−9.3 | LOS/−9.7 | ✅ |
+| b_4 | NLOS/−36.4 | LOS/−7.7 | ❌ |
+| b_5 | NLOS/−35.7 | NLOS/−25.4 | ❌ |
+| b_6 | LOS/−6.0 | NLOS/−41.1 | ❌ |
+
+**2/6 bağlandı** — kısa koşulardaki %30 ile uyumlu; bağlanan iki koşu da
+iki-yön-LOS. Bu, kısa-koşu RRC hasadının iki-yön-LOS alt kümesi için geçerli bir
+bağlanma vekili olduğunu doğruluyor (kısa koşu yalnızca hızlı senkron olan
+LOS-LOS koşularını yakalıyor, hafif eksik sayıyor).
+
+**Yorum**
+
+- Yoğun kentsel bir HAPS el terminali için "kullanılabilir" pratikte
+  = "bağlantı kurulurken **her iki yön de** LOS çekti" demek. UE hareketsiz
+  olduğundan bu durum tüm oturum boyunca donuk — bir kez NLOS çektiysen o
+  oturum boyunca öyle kalıyorsun. Bu, Deney 15'in "55°'de yazı-tura"
+  ifadesinin sayısallaştırılmış hâli: ~65° üstü ~%70, 55° ~%30, <47° genelde
+  başarısız.
+- FSPL omurgası (LOS netgain ~−6 → ~−14 arası) ve NLOS uçurumu senaryodan
+  bağımsız fiziktir (Deney 12/13/15); yoğun kentseli özel yapan tek şey LOS
+  olasılığının açıyla ne kadar hızlı çöktüğü.
+
+**Sonuç**: ✅ Yoğun kentsel bağlanabilirliği nicelendirildi. Model, TR 38.811
+LOS olasılığını uçtan uca doğru yansıtıyor; bağlanma DL-LOS'a **zorunlu**,
+UL'ye yumuşak bağlı; DL/UL bağımsız çizim iki-yön-LOS'u (tek-yön)²'ye düşürüyor
+ve asıl bağlanma uçurumunu bu yaratıyor.
