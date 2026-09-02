@@ -13,6 +13,7 @@ Diğer dokümanlarla ilişkisi:
 | `HAPS_GELISTIRME_GUNLUGU.md` | Kodun **nasıl yazıldığı** — geliştirme adımları (Adım 1…37) |
 | `HAPS_CALISTIRMA_REHBERI.md` | Her senaryonun **nasıl çalıştırılacağı** (komutlar) |
 | **`HAPS_TEST_GUNLUGU.md` (bu dosya)** | Kanal üzerinde yapılan **testler / denemeler ve sonuçları** |
+| `HAPS_PARTNER_DENEY_REHBERI.md` | Partnerin **kendi kanal kodunda** aynı deneyleri koşması için: parametre→değer eşlemesi, ölçüm metrikleri, karşılaştırma tabloları |
 
 ---
 
