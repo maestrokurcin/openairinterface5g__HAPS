@@ -1287,3 +1287,82 @@ kendi loiter hareketi (≤~230 Hz Doppler, ns mertebesinde gecikme kayması) lin
 veriyor. Bu, LEO'nun (~7.5 km/s yörünge hızı, kHz mertebesinde Doppler,
 `--cont-fo-comp` gerektiren) aksine HAPS'ın neredeyse-sabit doğasının pratik
 karşılığı.
+
+---
+
+### Deney 19 — Yoğun kentsel senaryo, ZENİT (tam bağlantı testi)
+
+- **Tarih**: 2026-09-02
+- **Değişen tek şey (baz senaryoya göre)**: mekân senaryosu `SUBURBAN_RURAL` →
+  `DENSE_URBAN` (config çifti `gnb/nrue.haps_mobile_ntn_38811_dense_urban.conf`).
+  Geometri baz senaryoyla aynı: `HAPS_GROUND_OFFSET_M` ayarlanmadı → zenit
+  (yükseklik açısı ~78.7°).
+- **Amaç**: Deney 11 (yoğun kentsel + 27° = 0/8 bağlanma) ve Deney 15 (yoğun
+  kentsel süpürme, ama kısa debug-only koşular) bu senaryoyu **düşük açıda**
+  test etti. Zenit'te tam bir bağlantı koşusu yapıldığında yoğun kentsel HAPS
+  linki çalışıyor mu? Yani yoğun kentselin sorunu senaryonun kendisi mi, yoksa
+  sadece düşük açıdaki LOS olasılığı çöküşü mü?
+- **Süre**: 6 koşu, her biri gNB→12 sn→UE→95 sn. `HAPS_DEBUG_38811=1`,
+  `MALLOC_ARENA_MAX=1`.
+
+**Ölçülen**
+
+| Koşu | LOS? | netgain (dB) | senkron | RRC | kopma | DL HARQ | UL HARQ | DL BLER | UL BLER | avg SINR |
+|---|---|---|---|---|---|---|---|---|---|---|
+| du_1 | LOS | −4.6 | ❌ 95 sn'de olmadı | — | — | — | — | — | — | — |
+| du_2 | LOS | −5.7 | ✅ | ✅ ilk | 0 | 73/0/0/0 | 714/0/0/0 | %0.006 | %0 | +38.8 |
+| du_3 | LOS | −3.8 | ✅ | ✅ ilk | 0 | 62/0/0/0 | 608/0/0/0 | %0.02 | %0 | +39.0 |
+| du_4 | LOS | −8.4 | ✅ | ✅ ilk | 0 | 46/0/0/0 | 445/0/0/0 | %0.1 | %0 | +39.8 |
+| du_5 | LOS | −5.4 | ❌ 95 sn'de olmadı | — | — | — | — | — | — | — |
+| du_6 | LOS | −8.6 | ✅ | ✅ ilk | 0 | 83/0/0/0 | 816/0/0/0 | %0.002 | %0 | +39.7 |
+
+**LOS çekimi**: 6/6 LOS. Yoğun kentsel LOS olasılığı ~79°'de yüksek
+(TR 38.811 Tablo 6.6.1-1, ~%75–80) — Deney 15'in zenit noktasıyla (3/3 LOS)
+tutarlı. `sigma_SF = 2.30 dB`, `CL = 0 dB` (LOS), `PLb ≈ 120–125 dB` (FSPLref
+122.63 dB civarı).
+
+**Senkron olmayan 2 koşu (du_1, du_5) — kanal değil, makine.** İkisi de LOS ve
+netgain'leri partinin **en iyileri** (−4.6, −5.4) — yani kanal sağlıklıydı, UE
+sadece ilk PBCH/SSB kilidini 95 sn içinde kuramadı (`synch Failed` döngüsü).
+Bu, bu makinede tüm senaryolarda görülen yavaş/kararsız ilk senkron sorunu
+(baz senaryo notu "senkron ~frame 794, yavaş"; Deney 16 koşu #3 de banliyöde
+55 sn'de senkron olmamıştı) — yoğun kentsele özgü değil. Eğer SNR kaynaklı
+olsaydı en kötü netgain'li koşular (du_4 −8.4, du_6 −8.6) düşerdi, tersi oldu.
+
+**Senkron olan 4 koşuda**: 4/4 ilk denemede RRC bağlanıyor, **0 kopma, 0
+yeniden iletim** (`x/0/0/0` her iki yönde), UL BLER tam 0, DL BLER <%0.1
+(banliyö baz senaryodaki ~%1'den bile düşük — küçük örneklem gürültüsü,
+anlamlı fark değil), SINR CQI tavanında (~+39).
+
+**Karşılaştırma**
+
+| | Banliyö zenit (baz 3.2) | **Yoğun kentsel zenit (D19)** | Yoğun kentsel 27° (D11/D15) |
+|---|---|---|---|
+| LOS olasılığı | ~1.0 | **~0.78 (6/6 bu partide)** | ~0.1–0.3 (D15: 1/3) |
+| LOS netgain (ort) | −5.7 | **~−6 (−3.8…−8.6)** | ~−11.6 |
+| `sigma_SF` | ~1 dB | **2.3 dB** | 2.3 dB |
+| RRC (senkron olunca) | ✅ ilk | **✅ ilk, 0 kopma** | ❌ 0/8 (D11) |
+| Link durumu | çalışıyor | **çalışıyor** | çoğu zaman ölü |
+
+**Yorum**
+
+- **Yoğun kentselin "sorunu" senaryo değil, açı.** Zenit'te yoğun kentsel HAPS
+  linki banliyö kadar iyi çalışıyor: LOS çekildiğinde netgain FSPL teorisine
+  oturuyor (~−6 dB), bağlantı temiz, hiç kopma/retx yok. Deney 11'deki 0/8
+  bağlanma felaketi tamamen **düşük açıda LOS olasılığının çöküşünden**
+  (~27°'de ~%10–30) ve NLOS çekilince netgain'in −40…−60 dB'ye düşmesinden
+  kaynaklanıyordu — yol kaybı modelinin yoğun kentsele özgü kalıcı bir cezası
+  yok (LOS `PLb` neredeyse FSPL, tek fark ~2.3 dB gölge sönümleme spreadi).
+- **Tek gerçek yoğun-kentsel-zenit etkisi**: LOS gölge sönümleme saçılması
+  banliyönün ~2×'i (`sigma_SF` 1 → 2.3 dB), yani netgain koşudan koşuya
+  −3.8…−8.6 arası oynuyor (banliyö ~±1 dB). Ama bu aralığın tamamı hâlâ
+  bağlanabilir bölgede — link marjı 27.9 dB SNR'de bol.
+- **`ssb_sinr` CSI raporu** (bu config'de `CSI_report_type = "ssb_sinr"`):
+  bağlantıyı etkilemedi, SINR yine tavanda.
+
+**Sonuç**: ✅ Yoğun kentsel senaryo **zenit'te tam çalışıyor** — banliyö baz
+senaryosuyla pratik olarak ayırt edilemez (tek fark ~2× gölge-sönümleme
+saçılması). Deney 11'in düşük-açı felaketi bir senaryo cezası değil, saf
+LOS-olasılığı/geometri etkisiydi. 6 koşunun 2'sinde UE senkron olamadı — bu
+makinenin bilinen yavaş-senkron kararsızlığı (kanalla ilgisiz; iki koşu da LOS
+ve en iyi netgain'lere sahipti).
