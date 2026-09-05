@@ -337,6 +337,36 @@ Taban senaryo (aksi belirtilmedikçe): banliyö/kırsal, zenit (yükseklik açı
 | **Ölç** | UE başına: bağlanma (evet/hayır), netgain, DL/UL BLER, HARQ, kopma; RA preamble çakışması; PRB paylaşımı |
 | **Beklenen** | Zenit: 3/3 bağlanır, RA çekişmesiz (~8 çerçeve arayla, farklı preamble), bağlantı sağlığı tek-UE ile aynı, güç kontrolü UE başına bağımsız. Düşük açı: bağlanma UE'ler arası bağımsız (biri NLOS çekerse yalnız o düşer) |
 
+### Deney 25 — Bileşik Doppler (platform + UE aynı anda)
+
+| | |
+|---|---|
+| **Fiziksel değişken** | Platform taşıyıcı Doppler'i + UE hareket Doppler'i, aynı anda |
+| **Bizim knob** | 3 kol: (A) `HAPS_UE_SPEED_MPS=0`, (B) platform donmuş + `HAPS_UE_SPEED_MPS=30`, (C) ikisi |
+| **Partner karşılığı** | Platform Doppler'ini geometriden taşıyıcı kayması olarak, UE hızını ayrı bir Doppler *yayılması* (fading bant genişliği) olarak modelleyin; taşıyıcıya UE kaynaklı kayma **eklemeyin** (modelde UE'nin LOS radyal hızı yok) |
+| **Ölç** | Taşıyıcı Doppler (Hz, gNB logu), fd_local (Hz), DL/UL BLER, kopma — her kol için |
+| **Beklenen** | Taşıyıcı kayması = **yalnız platform** (~15 Hz zenitte); UE = **yalnız yayılma** (fd_local, 30 m/s → 162/249 Hz). Bağımsız toplanır, çapraz terim yok, ikisi de S-bandında link'i etkilemez |
+
+### Deney 26 — Timing advance / NTN gecikme kompanzasyonu (uçtan uca)
+
+| | |
+|---|---|
+| **Fiziksel değişken** | Eğik mesafe / tek-yön gecikme (geometri ile) → açık + kapalı çevrim TA takibi |
+| **Bizim knob** | `HAPS_GROUND_OFFSET_M` = 0/15k/25k/35k + `HAPS_DEBUG_TA=1`; kontrol: 15k + platform donmuş |
+| **Partner karşılığı** | Açık-çevrim SIB19 TA ön-telafisi + kapalı-çevrim TA komutu; geometri zamanla değişirken UL'in gNB penceresinde kalıp kalmadığını uçtan uca izleyin |
+| **Ölç** | tek-yön gecikme, `timing_advance_ntn` (koşu boyu izi), PRACH kalıntısı (`estimated distance`), RA sonucu, **UL BLER zaman serisi** (çökme var mı, ne zaman) |
+| **Beklenen** | Offset 0 (zenit): loiter mesafeyi sabit tutar → temiz. **Offset ≥15k + loiter: RA başarılı, `timing_advance_ntn` menzili doğru izliyor, AMA UL BLER ~30s sonra 0→~%100 çöküyor** (sürekli kapalı-çevrim TA yok, ~40 ns/s sürüklenme ~30s'de CP'yi aşıyor). Platform donmuşsa temiz — sorun loiter kaynaklı menzil sürüklenmesi, mesafe büyüklüğü değil |
+
+### Deney 27 — Ekstrem hız (tren/uçak, 300+ km/h)
+
+| | |
+|---|---|
+| **Fiziksel değişken** | UE hızı 300–900 km/h (fading hızı) |
+| **Bizim knob** | `HAPS_UE_SPEED_MPS` = 83/139/250 (300/500/900 km/h) |
+| **Partner karşılığı** | fading AR(1) katsayısını `fd_local = v·fc/c` ile ölçekleyin |
+| **Ölç** | fd_local, taşıyıcı Doppler (değişmemeli), DL/UL BLER dağılımı (3+ koşu), kopma, senkron |
+| **Beklenen** | Model içinde 900 km/h'e kadar link bozulmuyor (yalnız yayılma artıyor, MCS-0 tolere ediyor); ~300 km/h'ten sonra stokastik UL BLER episodları sıklaşıyor ama HARQ toparlıyor, kopma yok. **Kısıt**: model UE hareketini taşıyıcı kayması olarak vermiyor — gerçek geometrik yüksek-hız Doppler'i için modellenmiş UE yörüngesi gerekir |
+
 ---
 
 ## 4. Bizim ölçtüğümüz değerler (karşılaştırma için)
@@ -383,6 +413,9 @@ büyüklük mertebesi**.
 | 21 | yoğun kentsel NLOS oranı | bağlanma DL-LOS'a zorunlu · DL/UL bağımsız · uçurum: 65°+ %70, 55° %30, <47° ~%10 |
 | 22 | O2I ısıl verimli + düşük açı | birleşim cezası yok · O2I kaybı açıyla artar (`Le=0.212·elev`) → 27°'de ~10 dB daha az, FSPL cezasıyla iptal · 0/10 bağlanır |
 | 23 | Multi-UE (3 UE, `--num-ues 3`) | zenit 3/3 bağlanır · RA çekişmesiz · bağlantı sağlığı tek-UE ile aynı · düşük açıda bağlanma UE-bağımsız (2/3) · ön koşul: `position<N>` blokları |
+| 25 | Bileşik Doppler (platform + UE) | taşıyıcı kayması = yalnız platform (~15 Hz) · UE = yalnız yayılma (fd_local) · bağımsız toplanır, çapraz terim yok · link etkilenmez |
+| 26 | TA / NTN gecikme kompanzasyonu | offset 0 temiz · **offset ≥15k + loiter: UL BLER ~30s'de 0→%100 çöküyor** (sürekli kapalı-çevrim TA yok) · platform donmuşsa temiz |
+| 27 | Ekstrem hız (300–900 km/h) | fd_local doğrusal ↑ (2075 Hz @ 900 km/h) · 6/6 bağlanır, 0 kopma · stokastik UL episodları HARQ ile toparlanıyor · model taşıyıcı kayması vermiyor |
 
 ### 4.3 Yükseklik açısı — LOS netgain teorik eğrisi (tüm senaryolar için ortak)
 

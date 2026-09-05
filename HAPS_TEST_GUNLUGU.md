@@ -202,6 +202,9 @@ yönde değişmesini beklediğimiz — deneyin işi bunu doğrulamak ya da çür
 |---|---|---|
 | UE'yi sabitle | `HAPS_UE_SPEED_MPS=0` | Küçük-ölçekli sönümleme donar → BLER daha kararlı, kopma yok |
 | Hızlı UE | `HAPS_UE_SPEED_MPS=30` (108 km/h) | Doppler yayılımı↑ → daha hızlı fade → BLER↑, ara sıra kopma |
+| Ekstrem hız UE (tren/uçak) | `HAPS_UE_SPEED_MPS=83` (300), `139` (500), `250` (900 km/h) | `fd_local` doğrusal ↑ (250 m/s → 2075 Hz); stokastik UL BLER episodları sıklaşır ama HARQ toparlar. **Model UE hareketini taşıyıcı kayması değil yalnız yayılma olarak veriyor** (Deney 27) |
+| Bileşik Doppler (platform + UE) | `HAPS_UE_SPEED_MPS=30` (loiter varsayılan açık) | Taşıyıcı kayması = yalnız platform (~15 Hz); UE = yalnız yayılma. Bağımsız toplanır, etkileşim yok (Deney 25) |
+| TA / gecikme kompanzasyonu (uçtan uca) | `HAPS_GROUND_OFFSET_M` süpürmesi + `HAPS_DEBUG_TA=1` | Offset ≥15k + loiter → UL BLER ~30s'de 0→%100 çöküyor (sürekli kapalı-çevrim TA yok); platform donmuşsa temiz (Deney 26) |
 | Platformu dondur (temiz) | `HAPS_PLATFORM_SPEED_MPS=0 HAPS_LOITER_RADIUS_M=0` | Platform hareketi (loiter Doppler'i + zamanla değişen gecikme) kapanır; NTN-TDL sönümleme + saniyelik yol-kaybı/SIB19 tazelemesi aynen kalır (Adım 44). Tek değişkenli. |
 | Loiter yarıçapı / hızı ayarla | `HAPS_LOITER_RADIUS_M=1000` / `HAPS_PLATFORM_SPEED_MPS=55` | Yalnızca `HAPS_MOBILE*` ailesinde; loiter geometrisi/Doppler'i ölçekler |
 | Sabit platform (kaba) | `HAPS_STATIONARY_38811*` config | Platform Doppler'i yok — ama küçük-ölçekli sönümlemeyi ve `channel_length`'i de değiştirir, bu yüzden tek-değişkenli değil (bkz. Deney 18) |
@@ -1735,3 +1738,154 @@ bunu "UE Dünya merkezinde" sanır → ~6398 km sahte eğik mesafe →
 biri bağımsız TR 38.811 kanal gerçekleşimiyle; RA çekişmesiz, bağlantı sağlığı
 tek-UE ile aynı, bağlanma sonuçları UE'ler arası bağımsız. Ön koşul: UE
 konfigürasyonunda örnek başına `position<N>` bloğu (Adım 45).
+
+---
+
+### Deney 25 — Bileşik Doppler: platform + UE aynı anda hareket ederken
+
+- **Tarih**: 2026-09-06
+- **Hipotez**: Platform Doppler'i (Deney 18) ve UE Doppler'i (Deney 4/10) ayrı
+  ayrı test edilmişti. İkisi aynı anda açıkken toplam etki nasıl birleşir —
+  taşıyıcı frekans kaymaları toplanır mı, yoksa farklı seviyelerde mi çalışırlar?
+- **Baz senaryoya göre değişen**: env var'lar (config = baz
+  `gnb/nrue.haps_mobile_ntn_38811.conf`, zenit, banliyö). Üç kol:
+  - **A** — `HAPS_UE_SPEED_MPS=0` (yalnız platform loiter Doppler'i)
+  - **B** — `HAPS_PLATFORM_SPEED_MPS=0 HAPS_LOITER_RADIUS_M=0 HAPS_UE_SPEED_MPS=30` (yalnız UE)
+  - **C** — `HAPS_UE_SPEED_MPS=30` (ikisi: platform loiter + UE 108 km/h)
+- **Çalıştırma**: kol başına 2 koşu (~125-135 sn), `HAPS_DEBUG_TDL=1 HAPS_DEBUG_38811=1`.
+
+**Ölçülen**
+
+| Kol | taşıyıcı Doppler UE→SAT | fd_local (yayılma) UL 1.615GHz / DL 2.489GHz | tek-yön gecikme | bağlanma | DL/UL BLER | kopma |
+|---|---|---|---|---|---|---|
+| A (yalnız platform) | **~14.8 Hz** (loiter, kararlı) | 0 Hz | 0.0680 ms | ✅ | ~0 / 0 | 0 |
+| B (yalnız UE) | **0.000 Hz** | **162 / 249 Hz** | 0.0667 ms (sabit) | ✅ | ~0 / 0 | 0 |
+| C (ikisi) | ~14.6–14.8 Hz | 162 / 249 Hz | 0.0680 ms | ✅ | ~0 / 0 | 0 |
+
+**Yorum**
+
+1. **Taşıyıcı Doppler kayması = yalnızca platform.** Kol B (UE 30 m/s, platform
+   donmuş) → taşıyıcı kayması tam **0**. Kol C (ikisi) → ~14.7 Hz = Kol A ile
+   aynı. UE hareketi taşıyıcı frekansına hiçbir kayma eklemiyor.
+2. **UE hareketi = yalnızca Doppler *yayılması*** (`fd_local = v·fc/c`,
+   `haps_tdl.c`): sıfır ortalamalı sönümleme bant genişliği, taşıyıcı ofseti
+   değil. Modelde UE'nin `haps_geometry.c`'de konumu/hızı yok — hız yalnızca
+   NTN-TDL AR(1) katsayısını (`rho = exp(-2π·fd_local·dt)`) besliyor.
+3. **Bileşik = bağımsız süperpozisyon.** C'nin sayıları = A'nın taşıyıcı kayması
+   + B'nin yayılması, çapraz terim yok. İkisi de S-bandında küçük: ~15 Hz
+   taşıyıcı kayması SIB19 efemeris ile ön-telafi ediliyor (kalan ~14 Hz, 15 kHz
+   SCS'in %0.09'u), 162–249 Hz yayılma HARQ + slot-başı DMRS ile geçiliyor.
+   Üç kolda da 0 kopma, ~0 BLER.
+4. **Model kısıtı**: model hareketli bir UE'ye LOS Doppler *kayması* (radyal
+   yaklaşma/uzaklaşma) vermiyor. Zenite yakın bir el terminali için fiziksel
+   olarak makul (platforma açı neredeyse sabit); kapsama alanını düşük açıda
+   geçen hızlı bir UE için değil (bkz. Deney 27 kısıt notu).
+
+**Sonuç**: ✅ Bileşik Doppler = platform taşıyıcı kayması (≈15 Hz, telafi
+ediliyor) + UE yayılması (fd_local); bağımsız toplanıyorlar, etkileşim yok,
+ikisi de S-bandında link'i etkilemiyor.
+
+---
+
+### Deney 26 — Timing advance / NTN gecikme kompanzasyonu (uçtan uca)
+
+- **Tarih**: 2026-09-06
+- **Hipotez**: Günlükte TA/NTN gecikme kompanzasyonu (açık-çevrim SIB19
+  ön-telafisi + kapalı-çevrim TA) çok tartışıldı ama uçtan uca, geometri
+  taranarak test edilmemişti. Eğik mesafe arttıkça (gecikme büyüdükçe) RA ve
+  bağlantı sağlam kalıyor mu?
+- **Baz senaryoya göre değişen**: `HAPS_GROUND_OFFSET_M` = 0 / 15000 / 25000 /
+  35000 (eğik mesafe ~20.4 / ~27.6 / ~33 / ~40 km; yükseklik açısı
+  ~90° / ~52° / ~37° / ~27°). `HAPS_DEBUG_TA=1`. Kontrol: 15k + platform donmuş.
+- **Çalıştırma**: geometri başına 1–3 koşu (~130–240 sn).
+
+**Ölçülen**
+
+| offset | eğik mesafe | tek-yön gecikme | `timing_advance_ntn` | PRACH kalıntısı | RA | bağlantı |
+|---|---|---|---|---|---|---|
+| 0 | 20.39 km | 0.0680 ms | **1044, kaya gibi sabit** | 390 m | ✅ ilk deneme | DL BLER ~0, UL 0 — **temiz** |
+| 15k | 27.6→24.8 km (loiter) | 0.092→0.084 ms (180s'de) | 1418↔1268 (menzili **doğru** izliyor) | 390 m | ✅ | **UL BLER ~30s sonra 0→~%100 çöküyor (3/3)**, toparlamıyor |
+| 25k | 33 km | 0.1175 ms | 1698→1804 | 469 m | ✅ | **UL BLER ~%100** |
+| 35k | 40 km | 0.146 ms | — | — | ❌ senkron olmuyor (2/2) | — (düşük-açı marj, Deney 2/12/20 ile tutarlı) |
+| **15k + platform DONMUŞ** | 25.0 km sabit | 0.0834 ms sabit | **1280 sabit** | 390 m | ✅ | **DL/UL BLER 0 — temiz** |
+
+**Yorum**
+
+1. **Offset 0'da (zenite yakın) loiter, eğik mesafeyi ≈ sabit tutuyor** (platform
+   tam tepede dönüyor) → `timing_advance_ntn` 1044'te kaya gibi, PRACH kalıntısı
+   390 m, bağlantı kusursuz. **Önceki tüm deneylerin offset 0'da temiz çıkmasının
+   nedeni bu.**
+2. **Offset ≥15k + loiter**: RA başarılı (açık-çevrim ön-telafisi ilk anda
+   doğru), `timing_advance_ntn` gerçek eğik-mesafe salınımını doğru izliyor
+   (platform loiter yaptıkça 1418↔1268). **Ama UL BLER ~30s bağlantıdan sonra
+   0→~%100 çöküyor, monoton** (240 sn koşuda daha kötü: 580 UL hatası) ve
+   **toparlanmıyor**.
+3. **Mekanizma**: gNB'nin gerçekten uyguladığı tek-yön gecikme 15 km offset'te
+   ~40 ns/s sürükleniyor (0.092→0.084 ms / 180s). gNB RAR'da **tek bir**
+   kapalı-çevrim TA komutu gönderiyor ve bir daha güncellemiyor. UE'nin
+   saniyelik açık-çevrim TA güncellemesi geometriyi izliyor ama kalan telafi
+   edilmemiş bir sürüklenme birikiyor; ~30s sonra 15 kHz döngüsel önekin
+   (~4.7 µs) yarısını (~2.3 µs) aşıyor → UL PUSCH gNB FFT penceresinden çıkıyor
+   → çözme başarısız.
+4. **Kontrol bunu kanıtlıyor**: platform 15 km offset'te donmuş → uygulanan
+   gecikme sabit → `timing_advance_ntn` sabit (1280) → UL BLER 0. Yani sorun
+   mesafenin *büyüklüğü* değil, oblik açıda **loiter kaynaklı mesafe
+   sürüklenmesi**.
+5. Kök neden daha ileri incelenmedi (kod düzeltmesi bir Adım olur — kullanıcı
+   isteğiyle ertelendi): açığın, güncellenen açık-çevrim TA'nın UE TX
+   zamanlamasına uygulanışında mı (Geliştirme Günlüğü Adım 8/9 bölgesi) yoksa
+   eksik bir *sürekli kapalı-çevrim* TA'da mı olduğu.
+
+**Sonuç**: ⚠️ NTN gecikme kompanzasyonu near-zenith / sabit geometride sağlam,
+ama loiter eden platform oblik açıdan (≥15 km yer offset'i) görülünce yetersiz —
+RA ve açık-çevrim TA hesabı doğru, fakat sürekli kapalı-çevrim TA düzeltmesi yok;
+~40 ns/s'lik menzil sürüklenmesi ~30s'de CP'yi aşıyor ve UL kalıcı olarak
+çöküyor. Bu, günlükte açık bırakılan "TA / gecikme kompanzasyonu uçtan uca test
+edilmedi" maddesinin cevabı.
+
+---
+
+### Deney 27 — Ekstrem hız: uçak/tren senaryoları (300+ km/h)
+
+- **Tarih**: 2026-09-06
+- **Hipotez**: Deney 4 108 km/h'nin çoğunlukla zararsız olduğunu bulmuştu.
+  300–900 km/h (tren/uçak) ekstrem Doppler'de model ne yapıyor, link nerede
+  bozuluyor?
+- **Baz senaryoya göre değişen**: `HAPS_UE_SPEED_MPS` = 30 (108 km/h, Deney 4
+  referansı) / 83 (300 km/h, hızlı tren) / 139 (500 km/h) / 250 (900 km/h, jet).
+  Zenit, platform loiter varsayılan. `HAPS_DEBUG_TDL=1`.
+- **Çalıştırma**: 83/139/250 için 2'şer koşu (~125 sn).
+
+**Ölçülen**
+
+| hız | fd_local UL / DL | taşıyıcı Doppler | bağlanma | UL BLER | kopma |
+|---|---|---|---|---|---|
+| 30 (108 km/h) | 162 / 249 Hz | ~15 Hz | ✅ | ~0 (Deney 4: 1/6 koşuda ~%10 episod) | 0 |
+| 83 (300 km/h) | 447 / 689 Hz | ~15 Hz | ✅ 2/2 | 1 koşu temiz, 1 koşu ~%8–24 UL episod (HARQ toparladı, `ulsch_errors` ≤2) | 0 |
+| 139 (500 km/h) | 749 / 1154 Hz | ~15 Hz | ✅ 2/2 | ~0 | 0 |
+| 250 (900 km/h) | 1347 / **2075 Hz** | ~15 Hz | ✅ 2/2 | ~0 | 0 |
+
+**Yorum**
+
+1. **`fd_local` hızla doğrusal ölçekleniyor** (`v·fc/c`); 250 m/s'de DL yayılması
+   2075 Hz ≈ 15 kHz SCS'in %14'ü.
+2. **Taşıyıcı Doppler tüm hızlarda ~15 Hz** (yalnız platform) — UE hareketi
+   taşıyıcı kayması eklemiyor (Deney 25 #1-2). Yani "ekstrem hız" burada
+   "ekstrem sönümleme hızı" demek, "ekstrem geometrik Doppler" değil.
+3. **900 km/h'e kadar 6/6 bağlanıyor, 0 kopma.** BLER çoğunlukla ~0; stokastik
+   UL BLER episodları (HARQ tarafından yutuluyor, kopma yok, `ulsch_errors`
+   birikmiyor) görülüyor — 108 km/h'de ~1/6 (Deney 4), 300 km/h'de ~1/2,
+   500/900'de bu 2'şer koşu temizdi (küçük N). MCS-0 QPSK + slot-başı DMRS + LOS
+   (yüksek-K NTN-TDL-C baskın tap) hızlı sönümlemeye dayanıklı.
+4. **Model kısıtı (Deney 25 #4 ile aynı)**: gerçek bir 350 km/h tren veya
+   900 km/h uçak HAPS kapsama alanını geçerken radyal hızdan büyük bir LOS
+   Doppler *kayması* yaşardı (düşük açıda S-bandında ±kHz mertebesinde) — bu
+   model yalnızca sönümleme *yayılmasını* temsil ediyor. Model içinde sonuç
+   geçerli; gerçek geometrik-Doppler testi için modellenmiş bir UE yörüngesi
+   gerekir (bir Adım).
+
+**Sonuç**: ✅ Model içinde UE hızı 900 km/h'e kadar link'i bozmuyor (yalnızca
+yayılma artıyor, MCS-0 tolere ediyor); ~300 km/h'ten sonra stokastik UL BLER
+episodları sıklaşıyor ama HARQ toparlıyor, kopma yok. Fiziksel kısıt: model UE
+hareketini yalnızca Doppler yayılması olarak temsil ediyor, taşıyıcı kayması
+olarak değil — gerçek yüksek-hız geometrik Doppler'i ayrı bir Adım gerektirir.
