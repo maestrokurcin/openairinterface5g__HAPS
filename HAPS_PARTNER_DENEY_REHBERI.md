@@ -327,6 +327,16 @@ Taban senaryo (aksi belirtilmedikçe): banliyö/kırsal, zenit (yükseklik açı
 | **Ölç** | Koşu başına donmuş O2I çekimi (dB), UL/DL netgain, RRC |
 | **Beklenen** | **Birleşim cezası yok.** O2I kaybı yükseklik açısıyla *artar* (dik geliş = daha çok bina malzemesi) → 27°'de zenite göre ~10 dB *daha az*. Bu, düşük açının ~7 dB FSPL cezasıyla neredeyse iptal oluyor. Link yine ölü (0/10) |
 
+### Deney 23 — Çoklu-kullanıcı (Multi-UE)
+
+| | |
+|---|---|
+| **Fiziksel değişken** | Aynı gNB'ye N eşzamanlı UE, her biri bağımsız kanal gerçekleşimiyle |
+| **Bizim knob** | Yeni config çifti `..._multiue.conf` (UE başına ayrı `rfsimu_channel_ue<N>`/`_enB<N>`, 3× uicc/RU/cell, **3× `position<N>`**) + `nr-uesoftmodem --num-ues 3` |
+| **Partner karşılığı** | Kanal modelinizi UE-örneği (bağlantı) başına ayrı instance olarak kurun — büyük/küçük ölçek çekimleri UE başına bağımsız olmalı. UE konumunu her örnek için ayrı okuyun (eksikse {0,0,0} → sahte ~6398 km TA → simülasyon kilitlenir) |
+| **Ölç** | UE başına: bağlanma (evet/hayır), netgain, DL/UL BLER, HARQ, kopma; RA preamble çakışması; PRB paylaşımı |
+| **Beklenen** | Zenit: 3/3 bağlanır, RA çekişmesiz (~8 çerçeve arayla, farklı preamble), bağlantı sağlığı tek-UE ile aynı, güç kontrolü UE başına bağımsız. Düşük açı: bağlanma UE'ler arası bağımsız (biri NLOS çekerse yalnız o düşer) |
+
 ---
 
 ## 4. Bizim ölçtüğümüz değerler (karşılaştırma için)
@@ -372,6 +382,7 @@ büyüklük mertebesi**.
 | 20 | yağmur + düşük açı | bağımsız toplanır · 100 mm/h @ 27° = 0.032 dB |
 | 21 | yoğun kentsel NLOS oranı | bağlanma DL-LOS'a zorunlu · DL/UL bağımsız · uçurum: 65°+ %70, 55° %30, <47° ~%10 |
 | 22 | O2I ısıl verimli + düşük açı | birleşim cezası yok · O2I kaybı açıyla artar (`Le=0.212·elev`) → 27°'de ~10 dB daha az, FSPL cezasıyla iptal · 0/10 bağlanır |
+| 23 | Multi-UE (3 UE, `--num-ues 3`) | zenit 3/3 bağlanır · RA çekişmesiz · bağlantı sağlığı tek-UE ile aynı · düşük açıda bağlanma UE-bağımsız (2/3) · ön koşul: `position<N>` blokları |
 
 ### 4.3 Yükseklik açısı — LOS netgain teorik eğrisi (tüm senaryolar için ortak)
 

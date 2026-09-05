@@ -233,6 +233,13 @@ yönde değişmesini beklediğimiz — deneyin işi bunu doğrulamak ya da çür
 | SISO → **2x2 MIMO** | `..._2x2.conf` çifti | İyi koşullu kanalda RI=2 → DL goodput ~2×; kötü kanalda fark yok |
 | 2x1 SIMO/MISO | `..._2x1.conf` çifti | ⚠️ RRC'ye ulaşmaz (Adım 35) — sadece TDL kodu testi |
 
+### 4g'. Çoklu-kullanıcı / çoklu-ışın (config dosyası seçimi ile)
+
+| Değişiklik | Nasıl | Beklenen yön |
+|---|---|---|
+| Çoklu UE (Multi-UE) | `..._multiue.conf` çifti + `nr-uesoftmodem --num-ues 3` | 3 UE aynı anda bağlanır, her biri bağımsız kanal; RA çekişmesiz; bağlantı sağlığı tek-UE ile aynı (Deney 23). ⚠️ UE conf'ta `position<N>` blokları zorunlu |
+| Çoklu ışın (Multi-Beam) | (henüz yok) rfsim `enable_beams=1` + `beam_gains` matrisi; gNB'de çok-SSB-ışın + `beam_weights` | Henüz test edilmedi — HAPS kanal modelinin açısal ışın kazancı yok, ayrı bir Adım gerekir |
+
 ### 4h. Kalıcı config parametreleri (dosya düzenlemesi — ayrıca Geliştirme Günlüğü'ne yazılır)
 
 `noise_power_dB`, `ploss_dB` (yalnızca ilk değer — sonra `haps_propagation.c`
@@ -1633,3 +1640,98 @@ cezası" yok: P.2109 giriş kaybı yükseklik açısıyla artan bir terim (`Le`)
 içeriyor, bu yüzden düşük açıda O2I kaybı ~10 dB *azalıyor* ve bu azalma düşük
 açının ~7 dB FSPL cezasıyla neredeyse tam olarak dengeleniyor. Deney 17 + Deney
 12'nin bağımsız toplamı, gözlenen sonucu iyi öngörüyor.
+
+---
+
+### Deney 23 — Çoklu-kullanıcı (Multi-UE): 3 UE aynı anda, bağımsız kanallar
+
+- **Tarih**: 2026-09-05
+- **Hipotez**: Tek bir HAPS gNB'ye aynı anda birden çok UE bağlandığında (a) her
+  UE kendi bağımsız TR 38.811 kanal gerçekleşimini (is_los / gölge-sönümleme /
+  NTN-TDL) alır mı, (b) RA çekişmesi/zamanlaması çalışır mı, (c) bağlanma
+  sonuçları UE'ler arası bağımsız mı (Deney 21'in çok-kullanıcılı hâli).
+- **Baz senaryoya göre değişen**: yeni config çifti
+  `gnb/nrue.haps_mobile_ntn_38811_multiue.conf` (Geliştirme Günlüğü Adım 45) —
+  `channelmod`'da UE başına ayrı UL/DL kanal nesnesi (`rfsimu_channel_ue0/1/2`,
+  `_enB0/1/2`), 3× `uicc`, 3× `RUs`/`cells`, **3× `position<N>` bloğu**.
+- **gNB komutu**:
+  ```
+  MALLOC_ARENA_MAX=1 HAPS_DEBUG_38811=1 \
+    ./ran_build/build/nr-softmodem -O ../haps_test/gnb.haps_mobile_ntn_38811_multiue.conf --rfsim
+  ```
+- **UE komutu** (tek süreç, 3 örnek):
+  ```
+  MALLOC_ARENA_MAX=1 HAPS_DEBUG_38811=1 \
+    ./ran_build/build/nr-uesoftmodem -O ../haps_test/nrue.haps_mobile_ntn_38811_multiue.conf --rfsim --num-ues 3
+  ```
+- **Çalıştırma**: zenit'te 2 tam koşu (~240–280 sn), ~27°'de 1 koşu (~260 sn).
+  rfsim 3 istemciyle ~3–5× yavaş çalışıyor ama takılmıyor (TA doğruyken).
+
+**⚠️ Kurulum sırasında bulunan tuzak — `position<N>` zorunlu**
+
+İlk denemede UE 1 ve UE 2 senkron oluyor ama RA'da simülasyon **donuyor**. Kök
+neden: `get_position_coordinates()` (`executables/position_interface.c`) UE N için
+`position<N>` bölümünü okur; **eksik bölüm sessizce {0,0,0}'a düşer**. NTN TA kodu
+bunu "UE Dünya merkezinde" sanır → ~6398 km sahte eğik mesafe →
+`timing_advance_ntn ≈ 328000 örnek` → `nr-ue.c`'de `writeBlockSize` negatife taşar
+(`writeBlockSize is -312439, setting it to 0` spam'i) → o UE iletim yapamaz →
+**paylaşılan rfsim örnek saati tüm UE'ler için kilitlenir**. `position1`/
+`position2` (position0 ile aynı) eklenince `timing_advance_ntn` → ~1044 örnek,
+`writeBlockSize` taşması 0, ve 3/3 UE bağlanıyor. Bu Adım 45'te config'e yazıldı.
+
+**Ölçülen — zenit (~78.7°, banliyö), 2 koşu**
+
+| Metrik | Koşu m4 | Koşu z2 |
+|---|---|---|
+| bağlanan UE | **3 / 3** | **3 / 3** |
+| RA çerçeveleri (UE0/1/2) | 834.6 / 842.6 / 850.6 | 850.6 / 834.6 / 842.4 |
+| RA preamble (RAPID) | 35 / 30 / 26 (çakışma yok) | 25 / 57 / 53 (çakışma yok) |
+| CBRA sonucu | 3/3 "succeeded (UE Connected)", Msg4 ACK | 3/3 |
+| UL kanal durumu (3 UE) | LOS / LOS / LOS | LOS / LOS / LOS |
+| netgain (UE başına, donmuş büyük-ölçek) | −5.8 … −6.6 | −5.3 … −6.3 |
+| kopma (koşu boyu, kapanışa dek) | 0 | 0 |
+| DL BLER (UE başına, oturmuş) | ~0.0003–0.001 | ~0.0003–0.001 |
+| UL BLER (UE başına) | ~0 (0 hata) | ~0 |
+| DL/UL HARQ (UE başına) | 48/0/0/0, ~470/0/0/0 | 79/0/0/0, ~780/0/0/0 |
+| gNB PUSCH SNR (UE başına) | ~16.9 / 16.9 / 16.8 dB (hedef 15) | ~17 dB |
+| gNB PRB tahsisi (UE başına) | ~5 NPRB, dengeli | ~5 NPRB, dengeli |
+| UE-bildirimli SINR (UE başına) | ~39.8–40.0 (CQI tavanı) | ~39–40 |
+
+**Ölçülen — ~27° (`HAPS_GROUND_OFFSET_M=35000`, banliyö), 1 koşu**
+
+| | |
+|---|---|
+| bağlanan UE | **2 / 3** |
+| kanal durumları | LOS + NLOS karışık (biri `sigma_SF=8.78 CL=18.42` NLOS çekti) |
+| RA (bağlanan ikisi) | çerçeve 306.6 (RAPID 8) ve 722.6 (RAPID 39) — çok farklı zamanlar |
+| bağlanan UE'lerde DL BLER | ~0.0005 (erken bağlanan) / ~0.02 (geç bağlanan — 27°'de marj dar) |
+| `timing_advance_ntn` | 2142 / 2185 örnek (loiter geometrisi UE'ler SIB19 okurken biraz farklı) |
+
+**Yorum**
+
+1. **UE başına bağımsız kanal nesnesi çalışıyor.** `channelmod`'da
+   `rfsimu_channel_ue<N>` / `_enB<N>` ayrı tanımlandığında her UE kendi
+   `haps_ctx`'ini alıyor → is_los, gölge-sönümleme, NTN-TDL ayrı çekiliyor.
+   Zenit'te banliyö ~%92 LOS olduğu için 2 koşuda da 3/3 LOS; ~27°'de bir UE
+   NLOS çekip düştü.
+2. **RA çekişmesiz ve otomatik zaman-bölmeli.** 3 UE senkron olduktan sonra RA
+   denemeleri ~8 çerçeve (80 ms) arayla sıralanıyor, farklı preamble seçiyorlar
+   (64 preamble havuzu, `ssb_perRACH...=15`), Msg1–Msg4 çakışma yok. gNB 3 ayrı
+   TC-RNTI/C-RNTI'yi paralel yönetiyor.
+3. **Bağlantı sağlığı tek-UE ile aynı.** Bağlanan her UE için DL/UL BLER, HARQ
+   dağılımı, PUSCH SNR yakınsaması ve kopma sayısı Deney 3.2 baz senaryosuyla
+   birebir; güç kontrolü her UE'yi bağımsız olarak hedefe kilitliyor, PRB
+   tahsisi dengeli. Çok-kullanıcı bir performans cezası getirmiyor (trafik yok —
+   goodput/MCS 5GC olmadan ölçülemez).
+4. **Bağlanma sonuçları UE'ler arası bağımsız** (Deney 21 ile tutarlı): zenit'te
+   hepsi bağlanır, düşük açıda "her UE kendi zar atışını yapar" — biri NLOS
+   çekerse o düşer, diğerleri etkilenmez.
+5. **rfsim çok-istemci sınırı**: sunucu örnek saatini tüm istemciler senkron
+   ilerletiyor; bir UE'nin TA'sı bozuk olursa (yukarıdaki `position<N>` tuzağı)
+   ya da bir UE hiç senkron olamazsa, **tüm** koşu yavaşlar/kilitlenebilir. TA
+   doğruyken 3 UE ~3–5× yavaş ama stabil.
+
+**Sonuç**: ✅ Multi-UE çalışıyor — 3 UE tek HAPS gNB'ye aynı anda bağlanıyor, her
+biri bağımsız TR 38.811 kanal gerçekleşimiyle; RA çekişmesiz, bağlantı sağlığı
+tek-UE ile aynı, bağlanma sonuçları UE'ler arası bağımsız. Ön koşul: UE
+konfigürasyonunda örnek başına `position<N>` bloğu (Adım 45).

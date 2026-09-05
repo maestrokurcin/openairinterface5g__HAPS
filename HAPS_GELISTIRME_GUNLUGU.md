@@ -3380,3 +3380,44 @@ eskisi gibi.
 **Sonuç**: Deney 18 için tek-değişkenli "platform hareketi açık/kapalı" knob'u
 hazır. Kinematik parametrelerinin (loiter yarıçapı, hızı) çalışma zamanında
 taranabilmesi de bir yan fayda.
+
+---
+
+### Adım 45 — Çoklu-kullanıcı (Multi-UE) test konfigürasyonu
+
+**Tarih**: 2026-09-05 · Test Günlüğü Deney 23 ile birlikte.
+
+`[Dosya] haps_test/gnb.haps_mobile_ntn_38811_multiue.conf` (YENİ)
+`+ Eklendi:` `gnb.haps_mobile_ntn_38811.conf`'un kopyası; tek fark `channelmod`
+bloğunda artık UL kanal nesnesi olarak `rfsimu_channel_ue0` **+ `ue1` + `ue2`**
+tanımlı (üçü de `HAPS_MOBILE_38811`, aynı parametreler).
+`# Gerekçe:` rfsimulator sunucusu (`simulator.cpp` `allocCirBuf`) N'inci bağlanan
+istemciye `rfsimu_channel_ue<N-1>` kanal nesnesini atıyor. Tek nesne tanımlıysa
+tüm UE'ler onu paylaşır (aynı `haps_ctx` → aynı is_los/gölge-sönümleme/TDL
+çekimi). Nesne başına ayrı tanım → her UE kendi bağımsız büyük-ölçek ve
+küçük-ölçek gerçekleşimini alır.
+
+`[Dosya] haps_test/nrue.haps_mobile_ntn_38811_multiue.conf` (YENİ)
+`+ Eklendi:` 3× `uicc` (IMSI ...1100/1101/1102), 3× `rfsimulator` girişi, 3× `RUs`,
+3× `cells` (`ru_id` 0/1/2), `channelmod`'da 3× DL kanal nesnesi
+(`rfsimu_channel_enB0/enB1/enB2`), ve **3× `position<N>` bloğu** (`position0`,
+`position1`, `position2` — üçü de aynı yer nokta­sında).
+`# Gerekçe:` `nr-uesoftmodem --num-ues 3` tek süreçte 3 UE örneği çalıştırır; her
+örnek 1:1 bir RU/cell/rfsimulator girişine ve kendi rfsim istemci bağlantısına
+eşlenir. **Kritik tuzak:** `get_position_coordinates()`
+(`executables/position_interface.c`) UE N için `position<N>` bölümünü okur ve
+**eksik bölüm sessizce {0,0,0}'a düşer**. NTN TA kodu (`nr_ntn_l1.c`) bunu
+"UE Dünya'nın merkezinde" diye yorumlar → ~6398 km sahte eğik mesafe →
+`timing_advance_ntn ≈ 328000 örnek` → `nr-ue.c`'de `writeBlockSize` negatife taşar
+→ o UE hiç iletim yapamaz → **paylaşılan rfsim örnek saati tüm UE'ler için
+kilitlenir** (simülasyon RA civarında donar). `position1`/`position2` eklenince
+`timing_advance_ntn` normale döner (~1044 örnek) ve 3/3 UE bağlanır.
+
+**Kaynak kodda değişiklik yok** — yalnızca yeni test konfigürasyon dosyaları.
+Mevcut tek-UE konfigürasyonları etkilenmez.
+
+**Test sonucu (Deney 23)**: Zenit (banliyö) senaryosunda `--num-ues 3` ile 3/3 UE
+ilk denemede `NR_RRC_CONNECTED`'e ulaştı (m4, z2 koşuları), RA çekişmesiz
+(~8 çerçeve arayla, farklı preamble), 0 kopma, UE başına bağımsız güç kontrolü.
+~27°'de bir koşuda 3 UE'den biri bağımsız NLOS çekip bağlanamadı (2/3) — Deney
+21'in "bağlanma DL-LOS gerektirir" bulgusunun çok-kullanıcılı hâli.
