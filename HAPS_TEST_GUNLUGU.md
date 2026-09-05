@@ -1546,3 +1546,90 @@ LOS-LOS koşularını yakalıyor, hafif eksik sayıyor).
 LOS olasılığını uçtan uca doğru yansıtıyor; bağlanma DL-LOS'a **zorunlu**,
 UL'ye yumuşak bağlı; DL/UL bağımsız çizim iki-yön-LOS'u (tek-yön)²'ye düşürüyor
 ve asıl bağlanma uçurumunu bu yaratıyor.
+
+---
+
+### Deney 22 — O2I "ısıl verimli" bina + düşük yükseklik açısı birlikte
+
+- **Tarih**: 2026-09-05
+- **Referans**: Deney 17 (O2I ısıl verimli, **zenit** ~78.7° — netgain −23/−37/−43,
+  3/3 bağlanamıyor) + Deney 12'nin 35 km noktası (banliyö, ~27.1°, O2I'siz LOS
+  netgain ~−12.8).
+- **Hipotez**: İki "link öldüren" etkiyi (ısıl-verimli bina girişi + düşük açı)
+  birleştir. Deney 20'deki "yağmur + düşük açı" gibi bağımsız mı toplanıyorlar,
+  yoksa P.2109 giriş kaybının bir yükseklik-açısı bağımlılığı var mı? Sezgi
+  "sıyırmalı geliş → daha kötü" der; kodun ne dediğini ölç.
+- **Baz senaryoya göre değişen (tek şey)**: `HAPS_GROUND_OFFSET_M=35000` (~27.1°)
+  **+** `HAPS_O2I_ENABLE=1 HAPS_O2I_THERMAL=1`. Config çifti baz
+  (`gnb/nrue.haps_mobile_ntn_38811.conf`, banliyö).
+- **gNB komutu**:
+  ```
+  MALLOC_ARENA_MAX=1 HAPS_GROUND_OFFSET_M=35000 HAPS_O2I_ENABLE=1 HAPS_O2I_THERMAL=1 \
+    HAPS_DEBUG_38811=1 HAPS_DEBUG_O2I=1 \
+    ./ran_build/build/nr-softmodem -O ../haps_test/gnb.haps_mobile_ntn_38811.conf --rfsim
+  ```
+- **UE komutu**: aynı env var'lar + `nr-uesoftmodem -O ../haps_test/nrue.haps_mobile_ntn_38811.conf --rfsim`
+- **Çalıştırma**: 7 kısa koşu (~28 sn) + 3 tam koşu (~95 sn), her koşuda O2I
+  çekimi donmuş (`large_scale_drawn`), `HAPS_DEBUG_O2I` `-> L=` alanından okundu.
+
+**Ölçülen — P.2109 ısıl-verimli O2I çekimi @ ~27.1° (donmuş, koşu başına tek değer)**
+
+| yön (frekans) | 10 koşu L (dB), sıralı | medyan | Deney 17 (zenit 78.7°) |
+|---|---|---|---|
+| UL (1.615 GHz) | 12.1, 18.4, 19.6, 26.5, 36.5, 41.7, 43.1, 49.3, 53.9, 58.7 | ~39 | — |
+| DL (2.489 GHz) | 23.4, 28.3, 32.0, 34.7, 35.7, 36.3, 44.0, 44.5, 53.6, 67.3 | ~36 | ~56 (medyan, N=6) |
+
+**Analitik — aynı persentilde O2I kaybı, zenit vs 27°** (`haps_o2i.c` formülü,
+ısıl-verimli, DL 2.49 GHz):
+
+| persentil `p` | 78.7° | 27.1° | Δ (27° − zenit) |
+|---|---|---|---|
+| 0.10 | 26.2 dB | 18.3 dB | **−7.9** |
+| 0.50 | 45.1 dB | 34.8 dB | **−10.3** |
+| 0.90 | 64.3 dB | 53.4 dB | **−10.8** |
+
+**Bağlantı sonucu (10 koşu)**
+
+| koşu | UL o2i / durum / netgain | DL o2i / durum / netgain | RRC |
+|---|---|---|---|
+| s1 | 49.3 / LOS / −60.4 | 53.6 / LOS / −66.0 | ❌ |
+| r2 | 19.6 / LOS / −32.7 | 44.5 / **NLOS** / −80.3 | ❌ |
+| r3 | 43.1 / LOS / −55.4 | 23.4 / LOS / −35.1 | ❌ |
+| r4 | 36.5 / LOS / −49.3 | 34.7 / LOS / −47.7 | ❌ |
+| r5 | 18.4 / LOS / −32.7 | 44.0 / LOS / −58.2 | ❌ |
+| r6 | 41.7 / LOS / −57.1 | 35.7 / LOS / −49.0 | ❌ |
+| r7 | 12.1 / LOS / −25.8 | 67.3 / LOS / −80.8 | ❌ |
+| r8 | 58.7 / LOS / −73.0 | 36.3 / LOS / −49.8 | ❌ |
+| r9 | 53.9 / **NLOS** / −101.0 | 28.3 / LOS / −40.7 | ❌ |
+| r10 | 26.5 / LOS / −39.2 | 32.0 / LOS / −45.3 | ❌ |
+
+**0/10 bağlandı**, hiçbir koşuda RAPID eşleşmesi bile yok. DL netgain her koşuda
+≤ −35 dB — senkron eşiğinin (~−15…−20 dB, Deney 7) çok altında.
+
+**Yorum**
+
+1. **P.2109 giriş kaybı yükseklik açısıyla ARTAR, azalmaz** — sezginin tersi.
+   `haps_o2i.c` eq (10): `Le = 0.212·|yükseklik°|`, `mu1 = Lh + Le`. Zenitte
+   `Le ≈ 16.7 dB`, 27°'de `Le ≈ 5.7 dB` → **aynı persentilde 27°'de O2I kaybı
+   ~8–11 dB daha DÜŞÜK**. Fiziksel gerekçe: dik geliş çatıdan/birden çok kattan
+   geçer (daha çok malzeme), sıyırmalı geliş tek bir dış duvardan geçer. Model
+   ITU-R P.2109'un NTN uzantısını doğru uyguluyor.
+2. **Ama bu ~10 dB "indirim", düşük açının FSPL cezasıyla neredeyse birebir
+   götürülüyor**: 27°'de geometri LOS netgain'i zaten ~−6 → ~−12.8'e (~7 dB)
+   indiriyor (`20·log₁₀ sin 27°`, Deney 12). Net sonuç: 27° + ısıl O2I ile
+   netgain (LOS koşularda) −26…−73, zenit + ısıl O2I ile (Deney 17) −23…−43 —
+   **aynı ölü rejim**. İki etki Deney 20'deki yağmur gibi bağımsız birleşiyor;
+   O2I'nin açı bağımlılığı ile geometrinin açı bağımlılığı zıt işaretli ve
+   büyüklükçe benzer olduğu için birbirlerini büyük ölçüde iptal ediyorlar.
+3. **Ölçülen medyanların Deney 17'den ~20 dB düşük görünmesi** kısmen gerçek
+   açı etkisi (~10 dB), kısmen küçük-örneklem persentil şansı (Deney 17'nin
+   N=6'sı yüksek persentillere denk gelmişti). Güvenilir sayı analitik
+   per-persentil ~10 dB'dir.
+4. r2 (DL NLOS) ve r9 (UL NLOS): banliyö 27°'de ~%8 NLOS beklenir; çekildiğinde
+   clutter loss (18.4 dB) + O2I üst üste binince netgain −80…−101.
+
+**Sonuç**: ⚠️ Kısmen — birleşim linki öldürüyor (0/10, beklenen), ama "birleşim
+cezası" yok: P.2109 giriş kaybı yükseklik açısıyla artan bir terim (`Le`)
+içeriyor, bu yüzden düşük açıda O2I kaybı ~10 dB *azalıyor* ve bu azalma düşük
+açının ~7 dB FSPL cezasıyla neredeyse tam olarak dengeleniyor. Deney 17 + Deney
+12'nin bağımsız toplamı, gözlenen sonucu iyi öngörüyor.

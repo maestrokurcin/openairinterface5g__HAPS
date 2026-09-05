@@ -317,6 +317,16 @@ Taban senaryo (aksi belirtilmedikçe): banliyö/kırsal, zenit (yükseklik açı
 | **Ölç** | Her koşuda: gNB logundan **UL kanal** LOS/NLOS + netgain, UE logundan **DL kanal** LOS/NLOS + netgain, RRC sonucu. Açı başına: %1-yön-LOS, %iki-yön-LOS, %bağlanma |
 | **Beklenen** | Bağlanma **her zaman DL=LOS gerektiriyor** (UL sığ NLOS'a, netgain > −27, tolerans var). DL/UL çizimleri **bağımsız** → iki-yön-LOS ≈ (tek-yön)² → bağlanma uçurumu: ~65°+ %70, 55° %30, <47° genelde başarısız |
 
+### Deney 22 — O2I ısıl verimli bina + düşük yükseklik açısı birlikte
+
+| | |
+|---|---|
+| **Fiziksel değişken** | Bina girişi kaybı (ısıl-verimli sınıf) × yükseklik açısı |
+| **Bizim knob** | `HAPS_GROUND_OFFSET_M=35000` (~27°) + `HAPS_O2I_ENABLE=1 HAPS_O2I_THERMAL=1`; 7 kısa + 3 tam koşu |
+| **Partner karşılığı** | P.2109 giriş kaybınıza yükseklik-açısı terimini ekleyin: `Le = 0.212·|elev°|`, `mu1 = Lh + Le` (P.2109-0 eq 9–10). Bu olmadan bu deney anlamsız |
+| **Ölç** | Koşu başına donmuş O2I çekimi (dB), UL/DL netgain, RRC |
+| **Beklenen** | **Birleşim cezası yok.** O2I kaybı yükseklik açısıyla *artar* (dik geliş = daha çok bina malzemesi) → 27°'de zenite göre ~10 dB *daha az*. Bu, düşük açının ~7 dB FSPL cezasıyla neredeyse iptal oluyor. Link yine ölü (0/10) |
+
 ---
 
 ## 4. Bizim ölçtüğümüz değerler (karşılaştırma için)
@@ -361,6 +371,7 @@ büyüklük mertebesi**.
 | 19 | yoğun kentsel zenit | 6/6 LOS · senkron olunca temiz bağlanır, 0 kopma |
 | 20 | yağmur + düşük açı | bağımsız toplanır · 100 mm/h @ 27° = 0.032 dB |
 | 21 | yoğun kentsel NLOS oranı | bağlanma DL-LOS'a zorunlu · DL/UL bağımsız · uçurum: 65°+ %70, 55° %30, <47° ~%10 |
+| 22 | O2I ısıl verimli + düşük açı | birleşim cezası yok · O2I kaybı açıyla artar (`Le=0.212·elev`) → 27°'de ~10 dB daha az, FSPL cezasıyla iptal · 0/10 bağlanır |
 
 ### 4.3 Yükseklik açısı — LOS netgain teorik eğrisi (tüm senaryolar için ortak)
 
