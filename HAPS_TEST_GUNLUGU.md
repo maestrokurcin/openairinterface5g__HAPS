@@ -238,8 +238,7 @@ yönde değişmesini beklediğimiz — deneyin işi bunu doğrulamak ya da çür
 | Değişiklik | Nasıl | Beklenen yön |
 |---|---|---|
 | Çoklu UE (Multi-UE) | `..._multiue.conf` çifti + `nr-uesoftmodem --num-ues 3` | 3 UE aynı anda bağlanır, her biri bağımsız kanal; RA çekişmesiz; bağlantı sağlığı tek-UE ile aynı (Deney 23). ⚠️ UE conf'ta `position<N>` blokları zorunlu |
-| Çoklu ışın (Multi-Beam) — mekanizma | `..._beam.conf` çifti (`enable_beams=1`, `beam_gains`), UE `beam_map` ile ışın seç | Işın hizasızlığı `netgain`'e toplanan yol kaybı gibi (Deney 24): Δ1(−4dB) bağlanır/bozulur, Δ2(−9dB) senkron ölür. `beam_gains` elle sabit — fiziksel değil |
-| Çoklu ışın — fiziksel model | (henüz yok) ışın kazancını `haps_geometry.c` açısına bağla + gNB çok-SSB-ışın | Ayrı bir Adım gerekir |
+| Çoklu ışın (Multi-Beam) | (henüz yok) rfsim `enable_beams=1` + `beam_gains` matrisi; gNB'de çok-SSB-ışın + `beam_weights` | Henüz test edilmedi — HAPS kanal modelinin açısal ışın kazancı yok, ayrı bir Adım gerekir |
 
 ### 4h. Kalıcı config parametreleri (dosya düzenlemesi — ayrıca Geliştirme Günlüğü'ne yazılır)
 
@@ -1736,71 +1735,3 @@ bunu "UE Dünya merkezinde" sanır → ~6398 km sahte eğik mesafe →
 biri bağımsız TR 38.811 kanal gerçekleşimiyle; RA çekişmesiz, bağlantı sağlığı
 tek-UE ile aynı, bağlanma sonuçları UE'ler arası bağımsız. Ön koşul: UE
 konfigürasyonunda örnek başına `position<N>` bloğu (Adım 45).
-
----
-
-### Deney 24 — Çoklu-ışın (Multi-beam): rfsim ışın simülasyonu HAPS kanalıyla toplanıyor mu?
-
-- **Tarih**: 2026-09-06
-- **Hipotez**: rfsimulator'ın "basitleştirilmiş ışın simülasyonu" (`enable_beams`
-  + `beam_gains` matrisi) HAPS kanal modeliyle birlikte çalışır mı — ışın
-  hizasızlığı, `netgain`'in üstüne ek bir yol kaybı gibi mi davranır, ve linki
-  ne zaman kapatır?
-- **Baz senaryoya göre değişen**: yeni config çifti
-  `gnb/nrue.haps_mobile_ntn_38811_beam.conf` (Adım 46) — `rfsimulator` bloğunda
-  `enable_beams=1`, `beam_gains="0,-4,-9,-16"` (Toeplitz: ışın ofseti 0/1/2/3 →
-  ek kayıp 0/−4/−9/−16 dB). gNB ışın 0'da sabit (`beam_map=1`); UE ışını koşu
-  başına `beam_map` = 1/2/4/8 ile seçildi.
-- **gNB komutu**:
-  ```
-  MALLOC_ARENA_MAX=1 HAPS_DEBUG_38811=1 \
-    ./ran_build/build/nr-softmodem -O ../haps_test/gnb.haps_mobile_ntn_38811_beam.conf --rfsim
-  ```
-- **UE komutu** (koşu başına conf kopyasında `beam_map` değiştirilerek):
-  ```
-  MALLOC_ARENA_MAX=1 HAPS_DEBUG_38811=1 \
-    ./ran_build/build/nr-uesoftmodem -O <beam_map yamalı nrue conf> --rfsim
-  ```
-- **Çalıştırma**: ışın ofseti başına 1–2 tam koşu (~140–150 sn), zenit banliyö.
-- **Not — çalışma-zamanı ışın değiştirme yapılamadı**: `rfsimu setbeam` telnet
-  komutu bu derlemede `libtelnetsrv.so` derlenmediği için kullanılamadı; ışın
-  ofseti koşular arası statik olarak tarandı.
-
-**Ölçülen (gNB ışın 0 sabit)**
-
-| UE ışını (Δ) | ek kayıp | bağlanma | senkron çerçevesi | DL BLER (oturmuş) | UE SINR | gNB PUSCH SNR | HAPS `netgain` |
-|---|---|---|---|---|---|---|---|
-| ışın 0 (Δ0) | 0 dB | ✅ 2/2 | ~834 | ~0.0000 | ~39.7–40.0 | ~16.7–17.2 (hedef 15) | −6.5 |
-| ışın 1 (Δ1) | −4 dB | ✅ 2/2 (biri ~898'e geç) | 834 / 898 | ~0.0002–0.003 | ~38.4–39.3 | ~16.9–17.3 (değişmedi) | −6.2 … −6.8 |
-| ışın 2 (Δ2) | −9 dB | ❌ 0/2 (senkron olmuyor) | — | — | — | — | −6.2 |
-| ışın 3 (Δ3) | −16 dB | ❌ 0/2 | — | — | — | — | −7.3 |
-
-**Yorum**
-
-1. **Işın cezası HAPS kanalıyla toplanır, ayrı bir terimdir.** `HAPS_DEBUG_38811`
-   `netgain`'i tüm koşularda ~−6…−7'de kaldı (ışından tamamen bağımsız) —
-   beklendiği gibi, çünkü HAPS kanal modelinde açısal/ışın kazancı yok. Işın
-   kaybı `combine_received_beams()` içinde alınan örneklere ayrı bir lineer
-   kazanç olarak çarpılıyor (gürültüye değil sinyale → doğrudan SNR darbesi),
-   matris simetrik olduğu için hem DL hem UL'e `M[|Δ|]` kadar vuruyor.
-2. **Efektif link bütçesi = `netgain` + ışın kaybı**, ve Deney 7'nin senkron
-   eşiğiyle (~−15…−20 dB) tutarlı biçimde kapanıyor:
-   - Δ0: efektif ~−6.5 → tam performans
-   - Δ1 (−4): efektif ~−10.5 → bağlanır, DL bozulur (DL'de güç kontrolü yok),
-     UL korunur (kapalı-çevrim PC ~17 dB'de tutuyor), senkron ara sıra yavaş
-   - Δ2 (−9): efektif ~−15 → **açık-çevrim ilk senkron (DL) başarısız** (2/2)
-   - Δ3 (−16): efektif ~−22 → ölü
-3. **En kırılgan nokta ilk senkron.** DL'de ve senkronda güç kontrolü / kapalı
-   çevrim yok, o yüzden ışın kaybı önce oraya vuruyor: Δ1'de bir koşu 64 çerçeve
-   geç senkron oldu, Δ2/Δ3'te hiç olmadı. Bağlanıldıktan sonra UL güç kontrolü
-   PUSCH SNR'ı hedefe geri çekiyor (Δ1'de ~17 dB, Δ0 ile aynı).
-4. **Kısıt**: `beam_gains` değerleri elle konmuş; bir anten örüntüsünden ya da
-   UE'nin ışın eksenine açısal ofsetinden türetilmiyor. Bu deney rfsim ışın
-   mekanizmasının HAPS kanalıyla **doğru toplandığını** ve linki gate
-   edebildiğini kanıtlıyor — fiziksel bir HAPS çoklu-ışın modeli için ışın
-   kazancını `haps_geometry.c`'deki açıya bağlamak gerekir (ayrı Adım).
-
-**Sonuç**: ✅ rfsim ışın simülasyonu HAPS kanalıyla birlikte çalışıyor —
-ışın hizasızlığı `netgain`'in üstüne toplanan bir yol kaybı gibi davranıyor,
-DL/UL'e simetrik vuruyor, ilk senkronu önce bozuyor ve ~−9 dB ofsette linki
-tamamen kapatıyor. Fiziksel model değil; mekanizma doğrulaması.
