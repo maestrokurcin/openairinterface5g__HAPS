@@ -337,6 +337,16 @@ Taban senaryo (aksi belirtilmedikçe): banliyö/kırsal, zenit (yükseklik açı
 | **Ölç** | UE başına: bağlanma (evet/hayır), netgain, DL/UL BLER, HARQ, kopma; RA preamble çakışması; PRB paylaşımı |
 | **Beklenen** | Zenit: 3/3 bağlanır, RA çekişmesiz (~8 çerçeve arayla, farklı preamble), bağlantı sağlığı tek-UE ile aynı, güç kontrolü UE başına bağımsız. Düşük açı: bağlanma UE'ler arası bağımsız (biri NLOS çekerse yalnız o düşer) |
 
+### Deney 24 — Çoklu-ışın (Multi-beam) mekanizma testi
+
+| | |
+|---|---|
+| **Fiziksel değişken** | Işın hizasızlığı kaybı (gNB ışını ile UE ışını farkı) |
+| **Bizim knob** | rfsim `enable_beams=1` + `beam_gains="0,-4,-9,-16"` (Toeplitz `M[i][j]=liste[\|i−j\|]`) her iki tarafta; gNB ışın 0 sabit, UE `beam_map`=1/2/4/8 |
+| **Partner karşılığı** | Kanal modelinize ışın-hizasızlığı yol kaybı terimi ekleyin — ya rfsim `beam_gains` özelliğini kullanın ya da kendi modelinizde `netgain`'e `M[\|Δ\|]` dB ekleyin. (Bizde `beam_gains` elle sabit — fiziksel anten örüntüsü değil) |
+| **Ölç** | Işın ofseti başına: bağlanma, senkron çerçevesi, DL BLER, UE SINR, gNB PUSCH SNR; `netgain`'in ışından bağımsız kaldığını doğrula |
+| **Beklenen** | Işın kaybı `netgain`'e **toplanır**, DL/UL'e simetrik. Δ0: tam performans · Δ1(−4dB): bağlanır, DL BLER↑, SINR −1…−1.5 dB, UL güç kontrolüyle korunur · Δ2(−9dB): senkron ölür (efektif ~−15, Deney 7 eşiği) · Δ3(−16dB): ölü. İlk senkron en kırılgan nokta (DL, açık çevrim) |
+
 ---
 
 ## 4. Bizim ölçtüğümüz değerler (karşılaştırma için)
@@ -383,6 +393,7 @@ büyüklük mertebesi**.
 | 21 | yoğun kentsel NLOS oranı | bağlanma DL-LOS'a zorunlu · DL/UL bağımsız · uçurum: 65°+ %70, 55° %30, <47° ~%10 |
 | 22 | O2I ısıl verimli + düşük açı | birleşim cezası yok · O2I kaybı açıyla artar (`Le=0.212·elev`) → 27°'de ~10 dB daha az, FSPL cezasıyla iptal · 0/10 bağlanır |
 | 23 | Multi-UE (3 UE, `--num-ues 3`) | zenit 3/3 bağlanır · RA çekişmesiz · bağlantı sağlığı tek-UE ile aynı · düşük açıda bağlanma UE-bağımsız (2/3) · ön koşul: `position<N>` blokları |
+| 24 | Multi-beam (rfsim `beam_gains`) | ışın kaybı `netgain`'e toplanır, DL/UL simetrik · Δ1(−4dB) bağlanır/bozulur · Δ2(−9dB) senkron ölür · `beam_gains` elle sabit, fiziksel değil |
 
 ### 4.3 Yükseklik açısı — LOS netgain teorik eğrisi (tüm senaryolar için ortak)
 
