@@ -2021,10 +2021,31 @@ arasında eşik var (15 kHz SCS'in ~%1'i).
 | 35k, LOS, FO yakınsamadı | ~2700 fail | ~2281 fail (yardım yok) ama yine bağlanıyor |
 | 35k, NLOS çekim | ölü | ölü (yapısal, ~%8) |
 
-**Sonuç**: ⚠️ Kısmen — kök neden bulundu ve kaldırıldı. 27° senkron zorluğunun
-asıl nedeni **telafi edilmemiş ~184 Hz DL taşıyıcı Doppler** (varsayılan
-`ue-fo-compensation=0`). `ue-fo-compensation=1` bunu belirgin şekilde düzeltiyor
-(FO tahmincisi yakınsadığında ~20×, yakınsamadığında zararsız) ve zenit/15k'yı
-bozmuyor — 15k'yı hızlandırıyor. 27°'yi **kurşun geçirmez yapmıyor**: ince marj,
-NLOS çekimleri (~%8) ve makine kırılganlığı yapısal. Ama zenit-dışı NTN linki
-için NTN-doğru ve düzeltilebilir asıl neden artık giderilmiş durumda.
+**Senkron başarı oranı — 35k + `ue-fo-compensation=1`, 5 koşu (~230 sn her biri)**
+
+| koşu | başlangıç yükü | DL netgain (donmuş) | RRC bağlantısı | synchFail |
+|---|---|---|---|---|
+| 1 | 0.00 | **−12.80** | ❌ | 7168 |
+| 2 | 1.28 | **−11.47** | ✅ | 1511 |
+| 3 | 3.85 | **−11.44** | ✅ | 268 |
+| 4 | 3.32 | **−12.84** | ❌ | 6101 |
+| 5 | 1.29 | **−12.92** | ❌ | 6990 |
+
+**Başarı oranı: 2/5 (%40).** Beş koşu da LOS. Ayrım tamamen **donmuş
+gölge-sönümleme çekiminde**: netgain ≥ −11.5 → senkron (2/2); netgain ≤ −12.8 →
+senkron yok (3/3). 3 başarısız koşu da makine yükünden değil (sim gerçek-zamandan
+hızlı koştu, 255–298 sn), tek bir "Initial sync successful" bile yok — hücre hiç
+yakalanamadı. Yani **ilk hücre yakalama için ~−12 dB net kazançta sert bir
+uçurum var** (kapalı-çevrim kazanç yok, NTN ön-telafisi yok, SIB19 öncesi — en
+kırılgan faz). FO comp yakalama *hızına* yardım ediyor (koşu 3: 268 fail) ama
+−12.8 dB linki kurtaramıyor. suburban 27°'de σ_SF=1.14 dB → LOS netgain ~−10.7…
+−13.1 arası saçılıyor, yarısı uçurumun kötü tarafında.
+
+**Sonuç**: ⚠️ Kısmen — kök neden bulundu ve kaldırıldı, ama 27° yine ~%40
+senkron. Asıl neden **telafi edilmemiş ~184 Hz DL taşıyıcı Doppler** (varsayılan
+`ue-fo-compensation=0`); `ue-fo-compensation=1` bunu düzeltiyor ve zenit/15k'yı
+bozmuyor (15k'yı hızlandırıyor). Ama 27°'de senkron başarısı **donmuş
+gölge-sönümleme çekiminin ~−12 dB uçurumun hangi tarafına düştüğüyle** belirleniyor
+(2/5); artı NLOS çekimleri (~%8) tamamen ölü. Bunlar yapısal — düşük-açı ilk
+hücre yakalamanın doğası. `ue-fo-compensation=1` NTN-doğru ve *düzeltilebilir*
+asıl nedeni giderdi; kalan uçurum modelin/senaryonun kendisi.

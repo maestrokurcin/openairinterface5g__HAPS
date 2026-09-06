@@ -428,7 +428,7 @@ büyüklük mertebesi**.
 | 25 | Bileşik Doppler (platform + UE) | taşıyıcı kayması = yalnız platform (~15 Hz) · UE = yalnız yayılma (fd_local) · bağımsız toplanır, çapraz terim yok · link etkilenmez |
 | 26 | TA / NTN gecikme kompanzasyonu | önce: offset ≥15k + loiter'de UL BLER ~30s'de 0→%100 · kök neden: UE efemerisi doğrusal ekstrapole ediyor + SIB19 seyrek okunuyor → ~1.6 km hata · **tam çözüm: Adım 47 (`val430` 240→40, tazeleme 20s) + Adım 48 (gNB eğrilik telafisi `ta-CommonDrift` ile) → offset 0/15k/25k UL tüm koşu boyunca temiz** |
 | 27 | Ekstrem hız (300–900 km/h) | fd_local doğrusal ↑ (2075 Hz @ 900 km/h) · 6/6 bağlanır, 0 kopma · stokastik UL episodları HARQ ile toparlanıyor · model taşıyıcı kayması vermiyor |
-| 28 | Düşük açı senkron sorunu | kök neden: 27°'de ~184 Hz DL taşıyıcı Doppler, `ue-fo-compensation` varsayılan kapalı → hücre araması ~2100 fail (zenit ~30) · düzeltme Adım 49: `nrue.conf`'a `ue-fo-compensation=1` · NLOS + ince marj yapısal |
+| 28 | Düşük açı senkron sorunu | kök neden: 27°'de ~184 Hz DL taşıyıcı Doppler, `ue-fo-compensation` varsayılan kapalı → hücre araması ~2100 fail (zenit ~30) · düzeltme Adım 49: `nrue.conf`'a `ue-fo-compensation=1` · düzeltme sonrası **senkron oranı 2/5 (%40)** — donmuş gölge-sönümleme çekimi ~−12 dB uçurumun hangi tarafına düşerse (netgain≥−11.5 senkron, ≤−12.8 değil) + NLOS ~%8 ölü · yapısal |
 
 ### 4.3 Yükseklik açısı — LOS netgain teorik eğrisi (tüm senaryolar için ortak)
 
