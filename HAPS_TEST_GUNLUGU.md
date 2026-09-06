@@ -1959,3 +1959,72 @@ yayılma artıyor, MCS-0 tolere ediyor); ~300 km/h'ten sonra stokastik UL BLER
 episodları sıklaşıyor ama HARQ toparlıyor, kopma yok. Fiziksel kısıt: model UE
 hareketini yalnızca Doppler yayılması olarak temsil ediyor, taşıyıcı kayması
 olarak değil — gerçek yüksek-hız geometrik Doppler'i ayrı bir Adım gerektirir.
+
+---
+
+### Deney 28 — Düşük yükseklik açısı (35k) senkron sorununun incelenmesi ve `ue-fo-compensation` düzeltmesi
+
+- **Tarih**: 2026-09-06
+- **Amaç**: Deney 26/20/12'de `HAPS_GROUND_OFFSET_M=35000` (~27° yükseklik açısı)
+  koşularında UE'nin çoğu zaman senkron olamadığı görülmüştü ("bu makinenin
+  bilinen kırılganlığı" diye geçiştirilmişti). Gerçek kök neden ne?
+- **Yöntem**: baz config çifti, `HAPS_GROUND_OFFSET_M` = 0 / 15000 / 35000. UE
+  senkron logu (PSS korelasyon tepesi, `Measured Carrier Frequency offset`,
+  `decoded_frame_rx`, "synch Failed" sayısı) zenit ile karşılaştırıldı. Sonra
+  hipotezler tek tek test edildi: `--ue-fo-compensation 1`, `HAPS_UE_SPEED_MPS=0`
+  (fading dondur), `--initial-fo`/`--cont-fo-comp` (LEO tarzı).
+
+**Ölçülen — senkron zorluğu yükseklik açısıyla**
+
+| geometri | DL taşıyıcı Doppler | "synch Failed" (senkrona kadar) | senkron çerçevesi | PSS tepe |
+|---|---|---|---|---|
+| zenit (off 0) | ~2 Hz | ~26–52 | ~800 | 86 dB |
+| off 15k (~52°) | ~97 Hz | ~50 | ~810 | 86 dB |
+| **off 35k (~27°)** | **~184–200 Hz** | **~2100–5000** | **~1000 veya hiç** | 86 dB |
+
+**Kök neden — telafi edilmemiş DL taşıyıcı Doppler.** PSS korelasyon tepesi ve
+RSRP her üç geometride aynı (86 dB / 45 dB/RE) — sinyal seviyesi sorun değil. Fark:
+27°'de platformun radyal hızı ~184–200 Hz DL Doppler üretiyor (zenitte ~2 Hz).
+UE'nin `ue-fo-compensation` parametresi **varsayılan KAPALI**, yani ilk hücre
+aramasında (SIB19'dan önce, henüz efemeris yok) bu ofsi düzeltmiyor → PBCH
+kod-çözümü SSB'lerin çoğunda başarısız → binlerce yeniden deneme. Dizin 97→184 Hz
+arasında eşik var (15 kHz SCS'in ~%1'i).
+
+**Hipotez testleri**
+
+| Test | Sonuç |
+|---|---|
+| `--ue-fo-compensation 1` (temiz, düşük yük) | senkron **çerçeve 42–88, ~100–612 fail** (kapalıyken ~2100), ofset 184→11–66 Hz düzeltiliyor. **Belirleyici.** |
+| `--ue-fo-compensation 1` (yük altında / bazı çekimler) | tutarsız — FO tahmincisi bazen yakınsamıyor (190 Hz artık), o zaman ~2281 fail; yine de sonunda bağlanıyor |
+| `HAPS_UE_SPEED_MPS=0` (fading dondur, FO comp yok) | senkron olmadı (4282 fail) — donmuş kötü fading + Doppler |
+| `--initial-fo -180 --cont-fo-comp 2` | senkron olmadı — LEO tarzı flag'ler bu senaryoda yardım etmiyor |
+| DL çekimi NLOS (27°'de ~%8) | netgain −22…−50 → gerçekten ölü, telafiden bağımsız |
+
+**İkincil etkenler** (kök neden değil, ama 27°'yi kırılgan tutan):
+- **İnce link marjı**: 27° LOS netgain ~−12 dB, senkron eşiğine (~−15…−20) yakın.
+- **Senkron sonrası ara sıra RA başarısızlığı**: bazı koşularda UE senkron olup
+  SIB19 okuyor ama sonra "RAR reception failed" (Msg2 alınamıyor) — −12 dB DL'de
+  RAR PDCCH marjinal.
+- **Makine yükü**: düşük-açı hücre araması (paralel SSB taraması, CPU-ağır) yük
+  altında çok kötüleşiyor; bu oturumdaki arka arkaya koşular makineyi doyurdu.
+
+**Düzeltme (Geliştirme Günlüğü Adım 49)**: tüm `nrue.haps_mobile_ntn*.conf`'a
+`ue-fo-compensation = 1;` (root seviyesi, conf'tan okunuyor — CLI gerekmiyor).
+
+**Düzeltme sonrası (Deney 28 doğrulama)**
+
+| geometri | önce | sonra (`ue-fo-compensation=1`) |
+|---|---|---|
+| zenit | ~30 fail / çerçeve 798 | **~32 fail / çerçeve 798** — regresyon yok |
+| 15k | ~50 fail / çerçeve 808 | **~140 fail / çerçeve 190** — daha hızlı, ofset 97→13 Hz |
+| 35k, LOS, FO yakınsadı | ~2100 fail / çerçeve 1008 | **~100–740 fail / çerçeve 42–740** |
+| 35k, LOS, FO yakınsamadı | ~2700 fail | ~2281 fail (yardım yok) ama yine bağlanıyor |
+| 35k, NLOS çekim | ölü | ölü (yapısal, ~%8) |
+
+**Sonuç**: ⚠️ Kısmen — kök neden bulundu ve kaldırıldı. 27° senkron zorluğunun
+asıl nedeni **telafi edilmemiş ~184 Hz DL taşıyıcı Doppler** (varsayılan
+`ue-fo-compensation=0`). `ue-fo-compensation=1` bunu belirgin şekilde düzeltiyor
+(FO tahmincisi yakınsadığında ~20×, yakınsamadığında zararsız) ve zenit/15k'yı
+bozmuyor — 15k'yı hızlandırıyor. 27°'yi **kurşun geçirmez yapmıyor**: ince marj,
+NLOS çekimleri (~%8) ve makine kırılganlığı yapısal. Ama zenit-dışı NTN linki
+için NTN-doğru ve düzeltilebilir asıl neden artık giderilmiş durumda.

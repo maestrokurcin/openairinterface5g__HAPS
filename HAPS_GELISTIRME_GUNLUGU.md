@@ -3528,3 +3528,42 @@ Adım 48 ile `val430` 120'ye gevşetilebilir (offset 15k'da test edildi), ama pa
 için 40'ta bırakıldı. Kalan yaklaşıklık: içbükey/dışbükey geçişlerde 3. derece
 artık (~7 m) — pratikte sıfır. Geometrik olarak tam tüm-faz çözüm için UE-tarafı
 çember-yayı yeniden kurma gerekir (ayrı iş, düşük öncelik — mevcut durum temiz).
+
+---
+
+### Adım 49 — İlk hücre aramasında DL taşıyıcı Doppler telafisi: `ue-fo-compensation = 1`
+
+**Tarih**: 2026-09-06 · Deney 28 (35k senkron sorunu incelemesi) ile birlikte.
+
+`[Dosya]` tüm `haps_test/nrue.haps_mobile_ntn*.conf` (7 dosya)
+```
++ Eklendi (root seviyesi, thread-pool'dan sonra):
+    ue-fo-compensation = 1;
+```
+
+`# Gerekçe:` `ue-fo-compensation` UE parametresi (`executables/nr-uesoftmodem.h`,
+`PARAMFLAG_BOOL`, **varsayılan 0**) ilk hücre aramasında (PSS/SSS/PBCH — SIB19'dan
+*önce*, henüz efemeris yok) DL taşıyıcı frekans ofsetini tahmin edip düzeltmeyi
+açıyor. Zenitte platform Doppler'i ~2 Hz, önemsiz. Ama düşük yükseklik açısında
+(`HAPS_GROUND_OFFSET_M ≈ 35000`, ~27°) platformun radyal hızı DL'de **~184–200 Hz**
+Doppler üretiyor — 15 kHz SCS'in ~%1'i — ve telafisiz PBCH kod-çözümü SSB'lerin
+neredeyse hepsinde başarısız oluyor: hücre araması binlerce yeniden deneme alıyor
+(~2100, zenitte ~30) ve çoğu zaman zaman aşımına uğruyor. NTN-doğru ayar: zenit
+dışı her NTN linkinde acquisition'da telafi edilmesi gereken bir taşıyıcı Doppler
+var; HAPS config'leri bundan yalnızca zenit-ağırlıklı test yüzünden kurtulmuştu.
+
+**Neden conf, CLI değil**: `config_get(cfg, cmdline_params, ..., NULL)` bu
+parametreleri kök seviyesinden okuyor (`--num-ues`, `thread-pool` gibi), yani
+`nrue.conf`'ta `ue-fo-compensation = 1;` çalışıyor (`Set UE_fo_compensation 1`
+logda doğrulandı). Böylece standart çağrı (`nr-uesoftmodem -O nrue.conf --rfsim`)
+değişmiyor.
+
+**Kaynak kodda değişiklik yok** — yalnızca config.
+
+**Test (Deney 28)**: Zenit + 15k regresyon yok (zenit ~32 fail / çerçeve 798;
+15k **daha hızlı** — 140 fail / çerçeve 190, önce ~50 / 808). 35k LOS çekimlerde:
+FO tahmincisi yakınsadığında senkron **çerçeve 42–740'ta, ~100–740 fail** (önce
+~2100–2700); yakınsamadığında düzeltmesiz gibi (~2281 fail) ama yine sonunda
+bağlanıyor. NLOS çekimler (27°'de ~%8, netgain −22…−50) telafiden bağımsız ölü.
+35k'yı kurşun geçirmez yapmıyor (ince marj + NLOS + makine kırılganlığı yapısal)
+ama düzeltilebilir asıl nedeni kaldırıyor.

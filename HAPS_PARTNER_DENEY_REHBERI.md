@@ -369,6 +369,16 @@ Taban senaryo (aksi belirtilmedikçe): banliyö/kırsal, zenit (yükseklik açı
 | **Ölç** | fd_local, taşıyıcı Doppler (değişmemeli), DL/UL BLER dağılımı (3+ koşu), kopma, senkron |
 | **Beklenen** | Model içinde 900 km/h'e kadar link bozulmuyor (yalnız yayılma artıyor, MCS-0 tolere ediyor); ~300 km/h'ten sonra stokastik UL BLER episodları sıklaşıyor ama HARQ toparlıyor, kopma yok. **Kısıt**: model UE hareketini taşıyıcı kayması olarak vermiyor — gerçek geometrik yüksek-hız Doppler'i için modellenmiş UE yörüngesi gerekir |
 
+### Deney 28 — Düşük yükseklik açısı senkron sorunu (DL taşıyıcı Doppler)
+
+| | |
+|---|---|
+| **Fiziksel değişken** | DL taşıyıcı Doppler (yükseklik açısıyla artar) → ilk hücre aramasında acquisition |
+| **Bizim knob** | `HAPS_GROUND_OFFSET_M` = 0/15k/35k; hipotez testleri `--ue-fo-compensation 1` vb. |
+| **Kök neden** | 27°'de platformun radyal hızı DL'de ~184–200 Hz Doppler üretiyor (zenitte ~2 Hz). UE `ue-fo-compensation` varsayılan KAPALI → ilk hücre aramasında (SIB19'dan önce) düzeltilmiyor → PBCH çoğu SSB'de başarısız → binlerce yeniden deneme (~2100 vs zenitte ~30). PSS tepesi/RSRP her açıda aynı — sinyal seviyesi sorun değil |
+| **Düzeltme (Adım 49)** | `nrue.conf`'a `ue-fo-compensation = 1;` (root seviyesi). Zenit/15k regresyon yok (15k **daha hızlı**); 35k LOS'ta FO yakınsadığında ~20× daha az fail. NLOS çekimleri (~%8) ve ince marj yapısal — 35k kurşun geçirmez değil |
+| **Partner karşılığı** | Kendi UE'nizde ilk hücre aramasında DL taşıyıcı frekans ofsetini tahmin edip düzelttiğinizden emin olun; düşük açıda ~200 Hz'lik Doppler'i acquisition öncesi telafi edin |
+
 ---
 
 ## 4. Bizim ölçtüğümüz değerler (karşılaştırma için)
@@ -418,6 +428,7 @@ büyüklük mertebesi**.
 | 25 | Bileşik Doppler (platform + UE) | taşıyıcı kayması = yalnız platform (~15 Hz) · UE = yalnız yayılma (fd_local) · bağımsız toplanır, çapraz terim yok · link etkilenmez |
 | 26 | TA / NTN gecikme kompanzasyonu | önce: offset ≥15k + loiter'de UL BLER ~30s'de 0→%100 · kök neden: UE efemerisi doğrusal ekstrapole ediyor + SIB19 seyrek okunuyor → ~1.6 km hata · **tam çözüm: Adım 47 (`val430` 240→40, tazeleme 20s) + Adım 48 (gNB eğrilik telafisi `ta-CommonDrift` ile) → offset 0/15k/25k UL tüm koşu boyunca temiz** |
 | 27 | Ekstrem hız (300–900 km/h) | fd_local doğrusal ↑ (2075 Hz @ 900 km/h) · 6/6 bağlanır, 0 kopma · stokastik UL episodları HARQ ile toparlanıyor · model taşıyıcı kayması vermiyor |
+| 28 | Düşük açı senkron sorunu | kök neden: 27°'de ~184 Hz DL taşıyıcı Doppler, `ue-fo-compensation` varsayılan kapalı → hücre araması ~2100 fail (zenit ~30) · düzeltme Adım 49: `nrue.conf`'a `ue-fo-compensation=1` · NLOS + ince marj yapısal |
 
 ### 4.3 Yükseklik açısı — LOS netgain teorik eğrisi (tüm senaryolar için ortak)
 
