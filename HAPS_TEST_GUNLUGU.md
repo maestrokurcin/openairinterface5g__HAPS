@@ -1820,28 +1820,55 @@ ikisi de S-bandında link'i etkilemiyor.
    (platform loiter yaptıkça 1418↔1268). **Ama UL BLER ~30s bağlantıdan sonra
    0→~%100 çöküyor, monoton** (240 sn koşuda daha kötü: 580 UL hatası) ve
    **toparlanmıyor**.
-3. **Mekanizma**: gNB'nin gerçekten uyguladığı tek-yön gecikme 15 km offset'te
-   ~40 ns/s sürükleniyor (0.092→0.084 ms / 180s). gNB RAR'da **tek bir**
-   kapalı-çevrim TA komutu gönderiyor ve bir daha güncellemiyor. UE'nin
-   saniyelik açık-çevrim TA güncellemesi geometriyi izliyor ama kalan telafi
-   edilmemiş bir sürüklenme birikiyor; ~30s sonra 15 kHz döngüsel önekin
-   (~4.7 µs) yarısını (~2.3 µs) aşıyor → UL PUSCH gNB FFT penceresinden çıkıyor
-   → çözme başarısız.
-4. **Kontrol bunu kanıtlıyor**: platform 15 km offset'te donmuş → uygulanan
-   gecikme sabit → `timing_advance_ntn` sabit (1280) → UL BLER 0. Yani sorun
-   mesafenin *büyüklüğü* değil, oblik açıda **loiter kaynaklı mesafe
-   sürüklenmesi**.
-5. Kök neden daha ileri incelenmedi (kod düzeltmesi bir Adım olur — kullanıcı
-   isteğiyle ertelendi): açığın, güncellenen açık-çevrim TA'nın UE TX
-   zamanlamasına uygulanışında mı (Geliştirme Günlüğü Adım 8/9 bölgesi) yoksa
-   eksik bir *sürekli kapalı-çevrim* TA'da mı olduğu.
+3. **Kök neden — SIB19 loiter'i izliyor ama LEO'ya ayarlı bir modelle** (kod
+   okundu, `openair2/LAYER2/NR_MAC_UE/config_ue.c` + `openair1/PHY/NR_UE_
+   TRANSPORT/nr_ntn_l1.c`; loglarla doğrulandı). Üç zincirleme kusur:
+   - **(a) UE, platform konumunu DOĞRUSAL ekstrapole ediyor, dairesel değil.**
+     `config_ue.c:302`: dairesel-yörünge modeli (`omega`) yalnızca uydu hızı
+     `> 1000 m/s` ise devreye giriyor (LEO eşiği). HAPS loiter hızı 27.75 m/s →
+     eşiğin altında → `omega = 0` → UE `pos = pos0 + vel0·t` yapıyor, yani
+     platformun 2 km yarıçaplı çemberde döndüğünü bilmiyor. Log: `angular
+     velocity = 0.000000e+00 rad/ms`, `pos_sat_90 == pos_sat_0`.
+   - **(b) UE SIB19'u çok seyrek yeniden okuyor.** 240 sn'lik koşuda `NTN Config
+     Rxd` **2 kez**. İki epoch arasında platform çemberin ~1/4'ünü dönüyor — hız
+     vektörü `{-1.32, 27.72}` → `{-27.48, -4.02}` (95° dönmüş) — ama UE bu
+     ~30–60 sn boyunca eski hızla düz ekstrapole ediyor → konum tahmini
+     ~1–1.6 km sapıyor, sonra taze SIB19 gelince geri sıçrıyor (`distance`
+     izinde ~1600 m'lik ani atlama görülüyor). `drift`/`accel` de 0 yayınlanıyor
+     (`haps_channel.c` `sat_position.drift = 0`), ekstrapolasyonu düzeltecek
+     ikinci-derece terim yok.
+   - **(c) Zenitte görünmez, oblik açıda öldürücü.** Zenitte LOS neredeyse dik →
+     ~1 km yatay konum hatası menzile kosinüs ile yansır (~0). Offset ≥15k'da
+     (~52° yükseklik açısı) aynı hata **doğrudan ~mikrosaniye menzil/TA hatası**
+     oluyor, 15 kHz döngüsel öneki (4.7 µs) aşıyor.
+4. **gNB kapalı-çevrim TA denetleyicisi bu testere-dişi hatayı kovalarken
+   kararsızlaşıyor.** UE aslında **hem** açık-çevrim (`timing_advance_ntn`) **hem**
+   kapalı-çevrim (`Received TA_COMMAND`) düzeltmesi alıyor. Zenitte gNB toplam
+   **5** TA komutu gönderip susuyor (`33 30 30 30 30`). Offset 15k'da **153**
+   komut, ikinci yarıda değerler **17↔46 arası salınıyor** (31 = değişim yok;
+   yani ±7 µs). Dizide `20 20 20 20 32 32 32 32 27 27 27 27 43...` gibi 4'erli
+   yığınlar — NTN geri besleme gecikmesi (round-trip + Koffset) yüzünden gNB
+   etkisini görmeden art arda aynı düzeltmeyi gönderiyor, aşırı düzeltiyor →
+   integral windup → UL zamanlaması çalkalanıyor → BLER ~%100.
+5. **Kontrol bunu kanıtlıyor**: platform 15 km offset'te donmuş → menzil sabit →
+   ekstrapolasyon hatası yok, gNB kapalı-çevrimi susuyor → `timing_advance_ntn`
+   1280'de sabit → UL BLER 0. Sorun mesafenin *büyüklüğü* değil, oblik açıda
+   **loiter kaynaklı menzil sürüklenmesi + bunu düzgün modelleyememe**.
+6. **Düzeltme (bir Adım — kullanıcı isteğiyle ertelendi)**: `config_ue.c`'deki
+   `vel_mag > 1000` eşiğini düşürmek / loiter için ayrı bir dal eklemek (UE
+   dairesel modeli kullansın), ve/veya `haps_channel.c`'de nonzero `drift`
+   yayınlamak, ve/veya HAPS için SIB19'u daha sık okutmak.
 
 **Sonuç**: ⚠️ NTN gecikme kompanzasyonu near-zenith / sabit geometride sağlam,
-ama loiter eden platform oblik açıdan (≥15 km yer offset'i) görülünce yetersiz —
-RA ve açık-çevrim TA hesabı doğru, fakat sürekli kapalı-çevrim TA düzeltmesi yok;
-~40 ns/s'lik menzil sürüklenmesi ~30s'de CP'yi aşıyor ve UL kalıcı olarak
-çöküyor. Bu, günlükte açık bırakılan "TA / gecikme kompanzasyonu uçtan uca test
-edilmedi" maddesinin cevabı.
+ama loiter eden platform oblik açıdan (≥15 km yer offset'i) görülünce yetersiz.
+SIB19 loiter'i **izliyor** (gNB her 10 ms tazeliyor, UE açık-çevrim TA'sı gerçek
+menzili takip ediyor) — ama UE'nin efemeris propagasyon modeli dairesel değil
+doğrusal (LEO `>1000 m/s` eşiği HAPS'ı dışarıda bırakıyor), SIB19'u seyrek
+okuyor, ve gNB kapalı-çevrim TA denetleyicisi NTN geri besleme gecikmesi altında
+kararsızlaşıyor. Bu üçü birleşince UL zamanlaması ~30s'de CP'yi aşıyor ve UL
+kalıcı çöküyor. Günlükte açık bırakılan "TA / gecikme kompanzasyonu uçtan uca
+test edilmedi" maddesinin cevabı; kök neden `config_ue.c`'nin LEO-ayarlı yörünge
+modeli.
 
 ---
 
