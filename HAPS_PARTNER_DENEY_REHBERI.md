@@ -379,6 +379,24 @@ Taban senaryo (aksi belirtilmedikçe): banliyö/kırsal, zenit (yükseklik açı
 | **Düzeltme (Adım 49)** | `nrue.conf`'a `ue-fo-compensation = 1;` (root seviyesi). Zenit/15k regresyon yok (15k **daha hızlı**); 35k LOS'ta FO yakınsadığında ~20× daha az fail. NLOS çekimleri (~%8) ve ince marj yapısal — 35k kurşun geçirmez değil |
 | **Partner karşılığı** | Kendi UE'nizde ilk hücre aramasında DL taşıyıcı frekans ofsetini tahmin edip düzelttiğinizden emin olun; düşük açıda ~200 Hz'lik Doppler'i acquisition öncesi telafi edin |
 
+### Deney 29 — `cellSpecificKoffset_r17` süpürmesi
+
+| | |
+|---|---|
+| **Fiziksel değişken** | K_offset (SIB19, tüm UL/DL zamanlamasına eklenir) |
+| **Bizim knob** | CLI override, N = 1/2/4/5/6/8 |
+| **Beklenen** | HAPS'ta Koffset=1 doğru (RTT 0.27ms ≪ slot). ≥4: UL kapalı-çevrim güç/TA döngüsü bozuluyor (SNR hedefin altı). ≥5: UE SIB19'u hiç alamıyor → bağlantı yok. (LEO config'i Koffset=40 çalışıyor ama ta-Common + TIMERS ile birlikte — izole yükseltme bozuyor) |
+| **Partner karşılığı** | Kendi platform gecikmenize uygun minimum Koffset'i kullanın; izole büyütmeyin |
+
+### Deney 30 — Non-zero `ta-Common` (transparent-payload besleme linki)
+
+| | |
+|---|---|
+| **Fiziksel değişken** | Besleme-linki (gNB↔platform) gidiş-dönüş gecikmesi, SIB19 `ta-Common-r17` |
+| **Bizim knob** | `HAPS_FEEDER_DELAY_MS` env var (Adım 50) — kanal offset'ine ekler + ta-Common yayınlar |
+| **Beklenen** | UE `ta-Common`'ı doğru alıp ön-telafiye katıyor (`N_Common_Ta` ölçekleniyor). AMA gNB PRACH alıcısı platform saatine referanslı (gNB = platform), ta-Common için kaydırmıyor → UE ön-telafisi PRACH'ı erken getiriyor, ZC cyclic-shift yanlış tespiti (feeder ≳0.05ms). Yalnız çok kısa besleme linki (~6 km) çalışıyor |
+| **Partner karşılığı** | Transparent modeli gerçekten test etmek için gNB'yi ayrı bir yer düğümü olarak modelleyin (PRACH RX referansı besleme gecikmesiyle kaydırılmış) |
+
 ---
 
 ## 4. Bizim ölçtüğümüz değerler (karşılaştırma için)
@@ -429,6 +447,8 @@ büyüklük mertebesi**.
 | 26 | TA / NTN gecikme kompanzasyonu | önce: offset ≥15k + loiter'de UL BLER ~30s'de 0→%100 · kök neden: UE efemerisi doğrusal ekstrapole ediyor + SIB19 seyrek okunuyor → ~1.6 km hata · **tam çözüm: Adım 47 (`val430` 240→40, tazeleme 20s) + Adım 48 (gNB eğrilik telafisi `ta-CommonDrift` ile) → offset 0/15k/25k UL tüm koşu boyunca temiz** |
 | 27 | Ekstrem hız (300–900 km/h) | fd_local doğrusal ↑ (2075 Hz @ 900 km/h) · 6/6 bağlanır, 0 kopma · stokastik UL episodları HARQ ile toparlanıyor · model taşıyıcı kayması vermiyor |
 | 28 | Düşük açı senkron sorunu | kök neden: 27°'de ~184 Hz DL taşıyıcı Doppler, `ue-fo-compensation` varsayılan kapalı → hücre araması ~2100 fail (zenit ~30) · düzeltme Adım 49: `nrue.conf`'a `ue-fo-compensation=1` · düzeltme sonrası senkron oranı: **52° (15k) 5/5 %100** (netgain −6…−9), **27° (35k) 2/5 %40** (netgain −11…−13, ~−12 dB yakalama uçurumu + NLOS ~%8 ölü) · düşük-açıya özgü, yapısal |
+| 29 | Koffset süpürmesi | HAPS'ta Koffset=1 doğru · ≥4 UL güç/TA döngüsü bozulur · ≥5 SIB19 yakalanamaz → bağlantı yok · izole yükseltme bozuyor (LEO'da 40 çalışır ama ta-Common+TIMERS ile) |
+| 30 | Non-zero ta-Common (feeder link) | UE ön-telafiye doğru katıyor · gNB PRACH ta-Common için kaydırmıyor (gNB=platform) → ZC cyclic-shift yanlış tespiti, feeder ≳0.05ms RA bozuluyor · yalnız ~6 km çalışıyor · Adım 50 env var |
 
 ### 4.3 Yükseklik açısı — LOS netgain teorik eğrisi (tüm senaryolar için ortak)
 

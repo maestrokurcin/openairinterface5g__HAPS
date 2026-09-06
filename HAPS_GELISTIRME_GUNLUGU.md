@@ -3567,3 +3567,41 @@ FO tahmincisi yakınsadığında senkron **çerçeve 42–740'ta, ~100–740 fai
 bağlanıyor. NLOS çekimler (27°'de ~%8, netgain −22…−50) telafiden bağımsız ölü.
 35k'yı kurşun geçirmez yapmıyor (ince marj + NLOS + makine kırılganlığı yapısal)
 ama düzeltilebilir asıl nedeni kaldırıyor.
+
+---
+
+### Adım 50 — `HAPS_FEEDER_DELAY_MS` env var'ı: transparent-payload (aktarıcı) besleme linki
+
+**Tarih**: 2026-09-07 · Test Günlüğü Deney 30 ile birlikte.
+
+`[Dosya]` `radio/rfsimulator/haps_channel.c` (ANA AĞAÇ kaynağı — mirror'a gider)
+```
++ Eklendi: double feeder_delay_s (getenv("HAPS_FEEDER_DELAY_MS") * 1e-3), tek yön
+~ Değiştirildi: uplink + downlink dallarında
+    delay_samples = prop_delay * sampling_rate
+  → delay_samples = (prop_delay + feeder_delay_s) * sampling_rate
+~ Değiştirildi: SIB19 sat_position.delay = 0
+  → .delay = lround(2.0 * feeder_delay_s / 4.072e-9)   # ta-Common-r17 birimi 4.072 ns, gidiş-dönüş
+```
+
+`# Gerekçe:` HAPS varsayılan olarak **rejeneratif** modelleniyor — gNB *platformun
+kendisi*, dolayısıyla ayrı bir gNB↔platform bacağı yok ve `ta-Common-r17` = 0
+(Adım 10). `HAPS_FEEDER_DELAY_MS` (tek yön, ms) **transparent-payload** modelini
+açıyor: platform yerdeki bir geçide RF besleme linkiyle bağlı, UE'lere aktarıyor.
+rfsim bu gecikmeyi her uç noktanın kanal offset'ine ekliyor (ekstra gidiş-dönüş
+= 2×feeder) ve aynı besleme gidiş-dönüşünü SIB19'un `ta-Common-r17`'sinde
+yayınlıyor, böylece UE feeder + servis linkini birlikte ön-telafi ediyor.
+Ayarlanmazsa (varsayılan 0) rejeneratif davranış birebir aynı.
+
+**Kaynak değişikliği** `radio/rfsimulator/haps_channel.c` (develop, mirror'a gider).
+
+**Test sonucu (Deney 30)**: env var çalışıyor — UE `N_Common_Ta`'yı doğru alıyor
+ve `timing_advance_ntn`'e ekliyor (feeder 0.1ms → `N_Common_Ta` 0.2ms,
+`timing_advance_ntn` ~2568). **AMA RA başarısız oluyor** feeder ≳ 0.05ms'de: gNB
+(= platform, rejeneratif) PRACH alıcısını yayınlanan `ta-Common` için kaydırmıyor,
+UE'nin `ta-Common` ön-telafisi PRACH'ı erken getiriyor ve ZC dizisi cyclic-shift
+korelasyonu yanlış tespit ediyor (Adım 8 / Round 3 sorunu). feeder ≲ 0.02ms
+(~6 km) absorbe ediliyor. Sonuç: **bu rfsim kurulumunda transparent-payload
+yalnız çok kısa besleme linki için çalışıyor; gerçek çözüm gNB'yi ayrı bir yer
+düğümü olarak modellemeyi gerektirir** (büyük değişiklik). Env var teşhis aracı
+olarak tutuldu (Adım 42 `HAPS_DEBUG_LOS_SWEEP` gibi).

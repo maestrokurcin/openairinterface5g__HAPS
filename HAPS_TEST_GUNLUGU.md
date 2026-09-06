@@ -246,9 +246,17 @@ yönde değişmesini beklediğimiz — deneyin işi bunu doğrulamak ya da çür
 ### 4h. Kalıcı config parametreleri (dosya düzenlemesi — ayrıca Geliştirme Günlüğü'ne yazılır)
 
 `noise_power_dB`, `ploss_dB` (yalnızca ilk değer — sonra `haps_propagation.c`
-üzerine yazar), `zeroCorrelationZoneConfig`, `prach_ConfigurationIndex`,
-`cellSpecificKoffset_r17`, PRB sayısı, TX gücü. Bunları değiştirmek kod
-davranışını kalıcı etkiler → deney + geliştirme adımı ikisi birden.
+üzerine yazar), `zeroCorrelationZoneConfig`, `prach_ConfigurationIndex`, PRB
+sayısı, TX gücü. Bunları değiştirmek kod davranışını kalıcı etkiler → deney +
+geliştirme adımı ikisi birden.
+
+**NTN zamanlama parametreleri:**
+
+| Değişiklik | Nasıl | Beklenen yön |
+|---|---|---|
+| `cellSpecificKoffset_r17` | CLI: `--gNBs.[0].servingCellConfigCommon.[0].cellSpecificKoffset_r17 N` | HAPS'ta 1 doğru (RTT 0.27ms ≪ slot). ≥4 UL güç/TA döngüsünü bozar, ≥5 SIB19 yakalamayı bozar (Deney 29) |
+| `ntn-UlSyncValidityDuration-r17` | dosya (Adım 47: 240→40) | UE SIB19'u `val430/2` s'de okur; loiter efemeris sürüklenmesi için 40 tutuldu |
+| non-zero `ta-Common` (feeder link) | `HAPS_FEEDER_DELAY_MS` env var (Adım 50) | UE ön-telafiyi doğru katıyor ama gNB PRACH'ı ta-Common için kaydırmadığından ≳0.05ms'de RA bozuluyor (Deney 30) — transparent HAPS bu kurulumda kısıtlı |
 
 ---
 
@@ -2071,3 +2079,100 @@ gölge-sönümleme çekiminin ~−12 dB uçurumun hangi tarafına düştüğüyl
 (2/5); artı NLOS çekimleri (~%8) tamamen ölü. Bunlar yapısal — düşük-açı ilk
 hücre yakalamanın doğası. `ue-fo-compensation=1` NTN-doğru ve *düzeltilebilir*
 asıl nedeni giderdi; kalan uçurum modelin/senaryonun kendisi.
+
+---
+
+### Deney 29 — `cellSpecificKoffset_r17` süpürmesi
+
+- **Tarih**: 2026-09-07
+- **Hipotez**: `cellSpecificKoffset_r17` (SIB19'da yayınlanan K_offset, tüm UL/DL
+  zamanlamasına eklenir) HAPS için 1'de. NTN'de daha büyük gecikmeler için daha
+  büyük Koffset gerekir (LEO referans config'i 40 kullanıyor). Koffset büyütünce
+  HAPS geometrisinde ne olur?
+- **Baz senaryoya göre değişen**: CLI override
+  `--gNBs.[0].servingCellConfigCommon.[0].cellSpecificKoffset_r17 N`
+  (N = 1/2/4/5/6/8). Zenit, banliyö. Kalıcı config değişikliği yok (koşum-başı
+  override), test-günlüğü-yalnız.
+
+**Ölçülen**
+
+| Koffset | UE k_offset | RRC | UL sağlığı | Not |
+|---|---|---|---|---|
+| 1 (baz) | 1ms | ✅ | temiz, 0 kopma | Msg3 @ RAR-slot + ~1 slot |
+| 2 | 2ms | ✅ | temiz, SNR ~17.5 kararlı | |
+| 4 | 4ms | ✅ | **bozulmuş** — SNR 13.9 (hedef 15'in altı), 75+ retx, 1 kopma | kapalı-çevrim güç/TA döngüsü ekstra gecikmeyle yavaşlıyor |
+| 5 | — | ❌ | SIB1 çözülüyor, **SIB19 hiç alınamıyor** → bağlantı yok | |
+| 6 | — | ❌ | aynı (2/2) | |
+| 8 | — | ❌ | aynı; LEO CLI flag'leri (`--time-sync-I 0.1 --cont-fo-comp 3`) yardım etmiyor | |
+
+**Yorum**
+
+1. **HAPS için Koffset=1 fiziksel olarak doğru**: 20 km'de gidiş-dönüş ~0.27 ms
+   ≪ 1 ms slot (µ=0). Yükseltmek için sebep yok.
+2. **Koffset=4'te bile UL bozuluyor**: K2/K1'e eklenen ekstra slot gecikmesi
+   gNB'nin kapalı-çevrim güç kontrolü ve TA komut döngüsünü yavaşlatıyor → SNR
+   hedefin altına düşüyor, yeniden iletim artıyor.
+3. **Koffset ≥ 5 → UE SIB19'u hiç yakalayamıyor** (SIB1 tamam, sonra takılıyor).
+   Kök neden tam çıkarılmadı — muhtemelen gNB'nin otherSI (SIB19) PDSCH'sini
+   UE'nin izlediği SI-penceresinin dışına kayan bir zamanlama, ya da bir timer.
+4. **LEO referans config'i Koffset=40 ile çalışıyor** (`ta-Common=4627000` +
+   `TIMERS` bloğu ile birlikte). Yani OAI'nin tavanı yapısal olarak ~5 değil —
+   HAPS config'inde Koffset'i **izole** yükseltmek (küçük 0.27ms gecikme,
+   eşleşen ta-Common yok, TIMERS bloğu yok) SIB19 yakalamayı ~5 civarında
+   bozuyor.
+
+**Sonuç**: ⚠️ HAPS için Koffset=1 doğru ve yeterli; izole yükseltmenin bir anlamı
+yok ve ~5'te SIB19 yakalamayı bozuyor (OAI config-bağımlılığı sorunu, HAPS
+fiziği değil). Uzun besleme linkli transparent HAPS efektif gidiş-dönüşü bir
+slotu aştığında Koffset > 1 gerekir — ama o zaman Koffset + ta-Common + timer'lar
+birlikte ayarlanmalı (bkz. Deney 30).
+
+---
+
+### Deney 30 — Non-zero `ta-Common` (transparent-payload besleme linki)
+
+- **Tarih**: 2026-09-07
+- **Hipotez**: HAPS rejeneratif modelleniyor (gNB = platform, `ta-Common`=0,
+  Adım 10). Transparent-payload'da (gNB yerde, platforma RF besleme linki, platform
+  UE'lere aktarıyor) `ta-Common` besleme-linki gidiş-dönüşünü taşır. UE bunu
+  ön-telafiye doğru katıyor mu, bağlantı çalışıyor mu?
+- **Baz senaryoya göre değişen**: `HAPS_FEEDER_DELAY_MS` env var (Adım 50, tek yön
+  ms) — hem gNB hem UE'ye. rfsim feeder gecikmesini kanal offset'ine ekliyor +
+  SIB19 `ta-Common-r17`'yi yayınlıyor. Değerler: 0 / 0.02 / 0.05 / 0.07 / 0.1 ms.
+
+**Ölçülen**
+
+| feeder (tek yön) | ta-Common (gidiş-dönüş) | UE `N_Common_Ta` | `timing_advance_ntn` | RRC | gNB PRACH `estimated distance` |
+|---|---|---|---|---|---|
+| 0 (baz) | 0 | 0.000 ms | ~1036 | ✅ | 390–468 m (normal) |
+| 0.02 ms (~6 km) | 0.04 ms | 0.040 ms ✓ | ~1341 | ✅ temiz | 390 m (normal — absorbe ediliyor) |
+| 0.05 ms (~15 km) | 0.10 ms | 0.100 ms ✓ | ~1802 | ⚠️ 4 RA-fail sonra bağlandı, kararsız (5 RRC setup) | **307 birim / 23985 m (!)** — yanlış tespit |
+| 0.07 ms (~21 km) | 0.14 ms | 0.140 ms ✓ | ~2109 | ✅ (şanslı hizalama) | 468 m |
+| 0.1 ms (~30 km) | 0.20 ms | 0.200 ms ✓ | ~2568 | ❌ RA hep başarısız — "RAR reception failed" | gNB PRACH'ı **hiç tespit etmiyor** |
+
+**Yorum**
+
+1. **Yayın + UE tarafı doğru çalışıyor**: her değerde UE `ta-Common`'ı alıp
+   `N_Common_Ta` olarak `timing_advance_ntn`'e ekliyor (feeder 0.1ms → 0.2ms →
+   ~2568 örnek). `HAPS_FEEDER_DELAY_MS` env var'ı ve SIB19 yayını çalışıyor.
+2. **AMA RA feeder ≳ 0.05ms'de bozuluyor**: gNB (= platform, rejeneratif) PRACH
+   alıcı referansını yayınlanan `ta-Common` için **kaydırmıyor**. UE'nin
+   `ta-Common` ön-telafisi PRACH'ı platforma göre erken getiriyor; Zadoff-Chu
+   dizisi cyclic-shift korelasyonu sarmalanıyor → 0.05ms'de dev sahte
+   timing_offset (23985 m ≈ feeder mesafesi), 0.07ms'de şans eseri isabet,
+   0.1ms'de tam kayıp. **Bu, Adım 8 / Round 3'ün PRACH Ncs-penceresi / cyclic-shift
+   yanlış-tespiti sorununun ta-Common versiyonu.** Adım 10'un "ta-Common 0
+   olmalı" kararını doğruluyor.
+3. **Yalnız çok kısa besleme linki (`ta-Common` ≲ 0.04ms, ~6 km) güvenilir
+   absorbe ediliyor.** Gerçek bir transparent HAPS besleme linki (platform ↔ yer
+   geçidi, 20–60 km → tek yön 0.067–0.2ms → ta-Common 0.13–0.4ms) bu toleransı
+   aşar.
+
+**Sonuç**: ⚠️ Bu rfsim kurulumunda transparent-payload (non-zero `ta-Common`)
+**yalnız çok kısa besleme linki için çalışıyor**. `HAPS_FEEDER_DELAY_MS` env
+var'ı `ta-Common`'ı doğru yayınlıyor ve UE doğru ön-telafi ediyor, ama gNB PRACH
+alıcısı platform saatine referanslı (gNB = platform), o yüzden UE'nin `ta-Common`
+ön-telafisi PRACH'ı erken getirip cyclic-shift yanlış tespitine yol açıyor.
+Düzgün transparent-payload modeli gNB'yi ayrı bir yer düğümü olarak (PRACH RX /
+zamanlama referansı besleme gecikmesiyle kaydırılmış) modellemeyi gerektirir —
+ayrı, büyük bir iş.
