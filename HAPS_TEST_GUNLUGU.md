@@ -1878,16 +1878,40 @@ kez). `s20` de denendi — çöküşü düzeltiyor ama T430 her 20 s'de dolduğu
 tekrar-RA/kopma churn'ü yaratıyordu; `s40` (20 s okuma / 40 s dolum, 2:1 pay)
 kaçırılan bir SI penceresini tolere ediyor.
 
-**Sonuç**: ✅ Düzeltildi. SIB19 loiter'i **izliyor**; sorun UE'nin epoch'lar arası
-**doğrusal** efemeris ekstrapolasyonu (LEO `>1000 m/s` eşiği HAPS'ı dışlıyor) ve
-o epoch'ların çok seyrek (120 s) tazelenmesiydi — birleşince ~1.6 km konum
-hatası → oblik açıda ~µs TA hatası → gNB kapalı-çevrim TA'sı NTN gecikmesi
-altında salınım → UL çöküşü. `ntn-UlSyncValidityDuration-r17`'yi 40'a düşürmek
-(SIB19'u 20 s'de bir okutmak) hatayı ~80 m'ye sınırlıyor ve offset 15k/25k'da UL
-tüm koşu boyunca temiz kalıyor. Günlükte açık bırakılan "TA / gecikme
-kompanzasyonu uçtan uca test edilmedi" maddesi kapandı. Kalan model kısıtı:
-`drift`/`accel` hâlâ 0 ve propagasyon hâlâ doğrusal — tam çözüm (HAPS
-loiter-merkezli dairesel dal veya gerçek `drift` yayını) ayrı bir iş.
+**Tam çözüm — Adım 48 (eğrilik telafisi), Adım 47'nin üstüne**
+
+Adım 47 hatayı yalnız *sınırlıyor* (`val430`'ı yükseltince çöküş geri gelir).
+Adım 48 (`radio/rfsimulator/haps_channel.c`) UE'nin düz-çizgi ekstrapolasyonunun
+**kaçırdığı eğriliği** hesaplayıp gNB'nin işaretli `ta-CommonDrift-r17` alanı
+üzerinden telafi ettiriyor: `haps_sib19_common_drift()` sonlu farkla
+`R''_gerçek − R''_doğrusal`'ı bulup Chebyshev-optimal doğrusal katsayı
+`0.5·(2·ΔR''/c)·T_pencere`'yi yayınlıyor. İşaretli alan → her loiter fazında
+çalışıyor (drift −0.013…+0.009 µs/s arası dönüyor); zenitte / sabit platformda
+~0. `config_ue.c`'ye dokunulmadı.
+
+| geometri | Adım 47 (s40) | **Adım 47 + Adım 48** |
+|---|---|---|
+| offset 0 (zenit) | temiz | **temiz** — `drift ≈ −0.003 µs/s`, regresyon yok |
+| offset 15k | UL BLER tüm koşu 0 | **UL BLER tüm ~220s 0**, tek bağlantı, TA_COMMAND nazik |
+| offset 25k | UL BLER tüm koşu 0 | **UL BLER tüm ~215s 0**, tek bağlantı |
+
+**Adım 48'in iş yaptığının kanıtı**: `val430` Adım 47'nin 40'ından **120'ye geri
+gevşetilip** (SIB19 60 s'de bir; düzeltmesiz kesin çöküş: ~700 m doğrusal hata)
+Adım 48 ile koşuldu → **offset 15k'da UL BLER tüm 240 s boyunca 0**, tek temiz
+bağlantı. Eğrilik telafisi düz-çizgi hatasını ~4× kesiyor.
+
+**Sonuç**: ✅ Tam çözüldü. SIB19 loiter'i **izliyor**; sorun UE'nin epoch'lar
+arası **doğrusal** efemeris ekstrapolasyonuydu (LEO `>1000 m/s` eşiği HAPS'ı
+dışlıyor) + o epoch'ların seyrek tazelenmesi. **Adım 47** (`val430` 240→40)
+tazeleme aralığını 120 s→20 s'ye indirip hatayı sınırlıyor; **Adım 48** UE'nin
+düz-çizgi modelinin kaçırdığı eğriliği işaretli `ta-CommonDrift` ile telafi edip
+kalan hatayı ~4× daha kesiyor ve her loiter fazında çalışıyor. Birlikte:
+offset 0/15k/25k'da UL tüm koşu boyunca temiz, `timing_advance_ntn` kararlı,
+gNB kapalı-çevrim TA'sı kararlı (nazik ±1 adım). Günlükte açık bırakılan
+"TA / gecikme kompanzasyonu uçtan uca test edilmedi" maddesi kapandı. Kalan
+yaklaşıklık: içbükey/dışbükey geçişlerde 3. derece artık (~7 m, pratikte sıfır);
+geometrik olarak tam tüm-faz çözüm UE-tarafı çember-yayı yeniden kurma
+gerektirir (düşük öncelik, mevcut durum temiz).
 
 ---
 

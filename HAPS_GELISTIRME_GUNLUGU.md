@@ -3468,8 +3468,63 @@ salınıyordu); gNB kapalı-çevrim TA'sı kararlı (nazik ±1 adım). Offset 35
 senkron olmuyor — o ayrı bir sorun (düşük-açı senkron kırılganlığı, bu makinede
 bilinen, Deney 2/12/20/26).
 
-**Not** — kalan model kısıtı: `drift`/`accel` hâlâ 0 yayınlanıyor ve UE efemeris
-propagasyonu hâlâ doğrusal; bu düzeltme yalnız hatayı sınırlıyor (dolayısıyla
-`val430`'ı çok yükseltmek yine çöküşü geri getirir). Tam düzeltme için
-`config_ue.c`'ye HAPS loiter-merkezli dairesel dal eklemek veya `haps_channel.c`'de
-gerçek `drift` yayınlamak gerekir — ayrı bir iş.
+**Not** — Adım 47 yalnız hatayı sınırlıyor (`val430`'ı çok yükseltmek çöküşü geri
+getirir); geometrik tam çözüm **Adım 48**'de.
+
+---
+
+### Adım 48 — Loiter eğrilik telafisi: gNB, UE'nin doğrusal ekstrapolasyon hatasını `ta-CommonDrift` ile düzeltiyor
+
+**Tarih**: 2026-09-06 · Deney 26'nın **tam çözümü** (Adım 47'nin üstüne).
+
+`[Dosya]` `radio/rfsimulator/haps_channel.c` (ANA AĞAÇ kaynağı — mirror'a gider)
+```
++ Eklendi: static long haps_sib19_common_drift(ctx, ground_offset_m, sat_height, t)
++ Eklendi: #define HAPS_SIB19_DRIFT_WINDOW_S 15.0
+~ Değiştirildi: sat_position.drift = 0  →  = haps_sib19_common_drift(...)
+```
+
+`# Gerekçe:` Adım 47'nin kök-neden analizi (Deney 26 madde 3): UE, `config_ue.c`
+dairesel modeli `>1000 m/s` eşiğinin altında kaldığı için platform konumunu SIB19
+epoch'ları arasında **düz çizgi** ile ekstrapole ediyor. Düz-çizgi modeli
+gecikmeyi ve onun **birinci** zaman türevini epoch'ta doğru veriyor; kaçırdığı
+şey **eğrilik** (platform dönüyor). Bu fonksiyon o kaçırılan eğriliği tam
+hesaplıyor — sonlu farkla `R''_gerçek − R''_doğrusal` (gerçek eğik menzilin
+2. türevi eksi doğrusal-ekstrapolasyonun 2. türevi, `h=1s` merkezî fark, 3 nokta
+`haps_compute_geometry` çağrısı) — ve UE'nin `N_common_ta_drift` olarak
+uygulaması için Chebyshev-optimal doğrusal katsayıyı `0.5 · (2·ΔR''/c) · T_pencere`
+döndürüyor. `ta-CommonDrift-r17` **İŞARETLİ** (`INTEGER(-257303..257303)`), bu
+yüzden **her loiter fazında** çalışıyor (dışbükey + içbükey) — `ta-CommonDrift
+Variant-r17` işaretsiz olduğu için yalnız dışbükey yarıyı düzeltebilirdi.
+
+**Neden bu alan**: tek-atlamalı HAPS'ta `ta-Common` (besleme linki gecikmesi)
+zaten 0 (gNB = platform), yani `ta-CommonDrift`'i UE'nin ekstrapolasyon hatasını
+telafi eden ek bir doğrusal TA terimi olarak kullanmak çakışma yaratmıyor.
+Zenitte / sabit platformda `drift ≈ 0` (loiter'in merkezcil ivmesi orada bakış
+doğrultusuna ~dik).
+
+**Neden `config_ue.c`'ye dokunulmadı**: oradaki dairesel model Dünya-merkezli
+yörünge varsayıyor; HAPS'ın 2 km loiter çemberi için doğru dal, iki SIB19
+anlık-görüntüsünden çember-yayı yeniden kurmayı gerektirir (paylaşılan LEO
+koduna dokunur) — kapsam dışı bırakıldı, bu gNB-yalnız telafi + Adım 47 tazeleme
+hızı UL'i döngüsel önekin çok içinde tutuyor.
+
+**Test sonucu (Deney 26 üçüncü kez koşuldu — Adım 47 + Adım 48)**:
+
+| geometri | Adım 47 (s40) | Adım 47 + Adım 48 |
+|---|---|---|
+| offset 0 (zenit) | temiz | **temiz** — `drift ≈ −0.003 µs/s` (ihmal edilebilir), regresyon yok |
+| offset 15k | UL BLER tüm koşu 0 | **UL BLER tüm ~220s 0**, tek bağlantı, `drift` −0.013…+0.009 µs/s (işaret loiter fazıyla dönüyor), TA_COMMAND nazik |
+| offset 25k | UL BLER tüm koşu 0 | **UL BLER tüm ~215s 0**, tek bağlantı |
+
+**Adım 48'in gerçekten iş yaptığının kanıtı** — `val430`'ı Adım 47'nin 40'ından
+**120'ye geri gevşetip** (SIB19 60 s'de bir okunuyor, düzeltmesiz kesin çöküş
+olurdu: 60 s'de ~700 m doğrusal hata → ~4.6 µs) Adım 48 ile koşuldu:
+**offset 15k'da UL BLER tüm 240 s boyunca 0**, tek temiz bağlantı. Yani eğrilik
+telafisi düz-çizgi hatasını ~4× kesip UL'i sağlam tutuyor.
+
+**Nihai durum**: `val430 = 40` (Adım 47) korundu + Adım 48 eğrilik telafisi.
+Adım 48 ile `val430` 120'ye gevşetilebilir (offset 15k'da test edildi), ama pay
+için 40'ta bırakıldı. Kalan yaklaşıklık: içbükey/dışbükey geçişlerde 3. derece
+artık (~7 m) — pratikte sıfır. Geometrik olarak tam tüm-faz çözüm için UE-tarafı
+çember-yayı yeniden kurma gerekir (ayrı iş, düşük öncelik — mevcut durum temiz).
