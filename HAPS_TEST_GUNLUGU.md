@@ -1854,21 +1854,40 @@ ikisi de S-bandında link'i etkilemiyor.
    ekstrapolasyon hatası yok, gNB kapalı-çevrimi susuyor → `timing_advance_ntn`
    1280'de sabit → UL BLER 0. Sorun mesafenin *büyüklüğü* değil, oblik açıda
    **loiter kaynaklı menzil sürüklenmesi + bunu düzgün modelleyememe**.
-6. **Düzeltme (bir Adım — kullanıcı isteğiyle ertelendi)**: `config_ue.c`'deki
-   `vel_mag > 1000` eşiğini düşürmek / loiter için ayrı bir dal eklemek (UE
-   dairesel modeli kullansın), ve/veya `haps_channel.c`'de nonzero `drift`
-   yayınlamak, ve/veya HAPS için SIB19'u daha sık okutmak.
+6. **Düzeltme yapıldı (Geliştirme Günlüğü Adım 47)**: `ntn-UlSyncValidityDuration-r17`
+   **240 → 40** (UE SIB19'u her 120 s yerine her 20 s okuyor). 20 s'de platform
+   loiter çemberinin yalnız ~16°'sini dönüyor, düz-çizgi ekstrapolasyon hatası
+   ~80 m (~0.5 µs gidiş-dönüş) → CP'nin çok içinde. `config_ue.c` koduna
+   dokunulmadı: oradaki dairesel model **Dünya-merkezli** yörünge varsayıyor
+   (`radius` ≈ 6398 km), HAPS'ın 2 km loiter çemberi için tamamen yanlış —
+   eşiği düşürmek yanlış `omega` verip durumu kötüleştirirdi.
 
-**Sonuç**: ⚠️ NTN gecikme kompanzasyonu near-zenith / sabit geometride sağlam,
-ama loiter eden platform oblik açıdan (≥15 km yer offset'i) görülünce yetersiz.
-SIB19 loiter'i **izliyor** (gNB her 10 ms tazeliyor, UE açık-çevrim TA'sı gerçek
-menzili takip ediyor) — ama UE'nin efemeris propagasyon modeli dairesel değil
-doğrusal (LEO `>1000 m/s` eşiği HAPS'ı dışarıda bırakıyor), SIB19'u seyrek
-okuyor, ve gNB kapalı-çevrim TA denetleyicisi NTN geri besleme gecikmesi altında
-kararsızlaşıyor. Bu üçü birleşince UL zamanlaması ~30s'de CP'yi aşıyor ve UL
-kalıcı çöküyor. Günlükte açık bırakılan "TA / gecikme kompanzasyonu uçtan uca
-test edilmedi" maddesinin cevabı; kök neden `config_ue.c`'nin LEO-ayarlı yörünge
-modeli.
+**Düzeltme sonrası — Deney 26 yeniden koşuldu (`val430 = 40`)**
+
+| geometri | önce (s240) | sonra (s40) |
+|---|---|---|
+| offset 0 (zenit) | temiz | **temiz** — regresyon yok |
+| offset 15k | UL BLER ~30s'de 0→%100 (3/3), 580 hata, TA_COMMAND 17↔46 salınım (153 komut) | **UL BLER tüm ~220s boyunca 0** (2/2), tek temiz bağlantı, 0 kopma, TA_COMMAND nazik 30/32 (18–33 komut) |
+| offset 25k | UL BLER ~%100 | **UL BLER tüm ~210s boyunca 0**, tek bağlantı, `timing_advance_ntn` 1652'de sabit |
+| offset 35k | senkron olmuyor | senkron olmuyor — değişmedi (bu, TA'dan bağımsız düşük-açı senkron kırılganlığı) |
+
+`timing_advance_ntn` artık kararlı (offset 15k'da HAPS_DEBUG_TA yolu ~1285–1296,
+önce 1418↔1268 salınıyordu); gNB kapalı-çevrim TA'sı kararlı (nazik ±1 adım,
+salınım yok); SIB19 ~20 s'de bir yeniden okunuyor (`NTN Config Rxd` 220 s'de 10
+kez). `s20` de denendi — çöküşü düzeltiyor ama T430 her 20 s'de dolduğu için
+tekrar-RA/kopma churn'ü yaratıyordu; `s40` (20 s okuma / 40 s dolum, 2:1 pay)
+kaçırılan bir SI penceresini tolere ediyor.
+
+**Sonuç**: ✅ Düzeltildi. SIB19 loiter'i **izliyor**; sorun UE'nin epoch'lar arası
+**doğrusal** efemeris ekstrapolasyonu (LEO `>1000 m/s` eşiği HAPS'ı dışlıyor) ve
+o epoch'ların çok seyrek (120 s) tazelenmesiydi — birleşince ~1.6 km konum
+hatası → oblik açıda ~µs TA hatası → gNB kapalı-çevrim TA'sı NTN gecikmesi
+altında salınım → UL çöküşü. `ntn-UlSyncValidityDuration-r17`'yi 40'a düşürmek
+(SIB19'u 20 s'de bir okutmak) hatayı ~80 m'ye sınırlıyor ve offset 15k/25k'da UL
+tüm koşu boyunca temiz kalıyor. Günlükte açık bırakılan "TA / gecikme
+kompanzasyonu uçtan uca test edilmedi" maddesi kapandı. Kalan model kısıtı:
+`drift`/`accel` hâlâ 0 ve propagasyon hâlâ doğrusal — tam çözüm (HAPS
+loiter-merkezli dairesel dal veya gerçek `drift` yayını) ayrı bir iş.
 
 ---
 

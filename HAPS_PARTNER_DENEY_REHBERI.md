@@ -357,6 +357,7 @@ Taban senaryo (aksi belirtilmedikçe): banliyö/kırsal, zenit (yükseklik açı
 | **Ölç** | tek-yön gecikme, `timing_advance_ntn` (koşu boyu izi), PRACH kalıntısı (`estimated distance`), RA sonucu, **UL BLER zaman serisi** (çökme var mı, ne zaman) |
 | **Beklenen** | Offset 0 (zenit): loiter mesafeyi sabit tutar → temiz. **Offset ≥15k + loiter: RA başarılı, `timing_advance_ntn` menzili doğru izliyor, AMA UL BLER ~30s sonra 0→~%100 çöküyor.** Platform donmuşsa temiz. |
 | **Kök neden (bizde)** | SIB19 loiter'i izliyor ama: (a) UE platform konumunu **doğrusal** ekstrapole ediyor, dairesel değil — `config_ue.c`'de dairesel model yalnız uydu hızı `>1000 m/s` ise devreye giriyor, HAPS 27.75 m/s eşiğin altında (`omega=0`); (b) UE SIB19'u seyrek okuyor (240s'de 2 kez), aralarda ~1 km konum hatası birikiyor; (c) `drift/accel` 0 yayınlanıyor; (d) zenitte kosinüs ile görünmez, oblik açıda ~µs TA hatası → CP aşımı; (e) gNB kapalı-çevrim TA denetleyicisi NTN geri besleme gecikmesi altında kararsızlaşıyor (TA komutları 17↔46 salınıyor, ±7 µs). Partner kendi kodunda: yavaş platform için dairesel/2. derece propagasyon + oblik geometride kapalı-çevrim kararlılığını kontrol etsin. |
+| **Düzeltme (Adım 47)** | `ntn-UlSyncValidityDuration-r17` **240 → 40** (SIB19 her 120 s yerine 20 s okunuyor → düz-çizgi hatası ~1.6 km yerine ~80 m). `config_ue.c` koduna dokunulmadı (oradaki dairesel model Dünya-merkezli, HAPS loiter'i için yanlış). Sonra: offset 15k/25k'da UL tüm koşu boyunca temiz, TA kararlı, TA_COMMAND nazik. Partner: kendi kodunda ephemeris tazeleme periyodunu / propagasyon modelini benzer şekilde kontrol etsin. |
 
 ### Deney 27 — Ekstrem hız (tren/uçak, 300+ km/h)
 
@@ -415,7 +416,7 @@ büyüklük mertebesi**.
 | 22 | O2I ısıl verimli + düşük açı | birleşim cezası yok · O2I kaybı açıyla artar (`Le=0.212·elev`) → 27°'de ~10 dB daha az, FSPL cezasıyla iptal · 0/10 bağlanır |
 | 23 | Multi-UE (3 UE, `--num-ues 3`) | zenit 3/3 bağlanır · RA çekişmesiz · bağlantı sağlığı tek-UE ile aynı · düşük açıda bağlanma UE-bağımsız (2/3) · ön koşul: `position<N>` blokları |
 | 25 | Bileşik Doppler (platform + UE) | taşıyıcı kayması = yalnız platform (~15 Hz) · UE = yalnız yayılma (fd_local) · bağımsız toplanır, çapraz terim yok · link etkilenmez |
-| 26 | TA / NTN gecikme kompanzasyonu | offset 0 temiz · **offset ≥15k + loiter: UL BLER ~30s'de 0→%100 çöküyor** · kök neden: UE efemerisi doğrusal ekstrapole ediyor (LEO `>1000 m/s` eşiği HAPS'ı dışlıyor), SIB19 seyrek okunuyor, gNB kapalı-çevrimi NTN gecikmesi altında kararsız · platform donmuşsa temiz |
+| 26 | TA / NTN gecikme kompanzasyonu | önce: offset ≥15k + loiter'de UL BLER ~30s'de 0→%100 · kök neden: UE efemerisi doğrusal ekstrapole ediyor + SIB19 seyrek (120s) okunuyor → ~1.6 km hata · **düzeltme (Adım 47): `ntn-UlSyncValidityDuration-r17` 240→40 → SIB19 20s'de okunuyor → offset 15k/25k UL tüm koşu boyunca temiz** |
 | 27 | Ekstrem hız (300–900 km/h) | fd_local doğrusal ↑ (2075 Hz @ 900 km/h) · 6/6 bağlanır, 0 kopma · stokastik UL episodları HARQ ile toparlanıyor · model taşıyıcı kayması vermiyor |
 
 ### 4.3 Yükseklik açısı — LOS netgain teorik eğrisi (tüm senaryolar için ortak)

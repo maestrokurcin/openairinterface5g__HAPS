@@ -3421,3 +3421,55 @@ ilk denemede `NR_RRC_CONNECTED`'e ulaştı (m4, z2 koşuları), RA çekişmesiz
 (~8 çerçeve arayla, farklı preamble), 0 kopma, UE başına bağımsız güç kontrolü.
 ~27°'de bir koşuda 3 UE'den biri bağımsız NLOS çekip bağlanamadı (2/3) — Deney
 21'in "bağlanma DL-LOS gerektirir" bulgusunun çok-kullanıcılı hâli.
+
+---
+
+### Adım 47 — Loiter efemeris sürüklenmesi düzeltmesi: `ntn-UlSyncValidityDuration-r17` 240 → 40
+
+**Tarih**: 2026-09-06 · Deney 26'nın kök nedeninin düzeltilmesi.
+
+`[Dosya]` `haps_test/gnb.haps_mobile_ntn_38811.conf` (ve tüm `gnb.haps_mobile_ntn*.conf`
+kardeşleri: `_urban`, `_dense_urban`, `_multiue`, `_2x1`, `_2x2`, `haps_mobile_ntn`)
+```
+~ Değiştirildi:
+- ntn-UlSyncValidityDuration-r17 = 240;   # s240 -> UE SIB19'u her 120 s'de okuyor
++ ntn-UlSyncValidityDuration-r17 = 40;    # s40  -> UE SIB19'u her 20 s'de okuyor
+```
+
+`# Gerekçe:` Deney 26, offset ≥15 km + loiter'de UL BLER'in ~30 s sonra
+0→~%100 çöktüğünü buldu; kök neden (Deney 26 madde 3): UE, platform konumunu
+SIB19 epoch'ları arasında **düz çizgi** ile ekstrapole ediyor
+(`config_ue.c:302` dairesel modeli yalnız uydu hızı `>1000 m/s` ise kuruyor,
+HAPS 27.75 m/s), ve UE SIB19'u yalnız `val430/2` saniyede bir yeniden okuyordu
+(240 → 120 s). 120 s'de platform 2 km loiter çemberinin ~%95'ini dönüyor, düz
+çizgi hatası ~1.6 km'ye ulaşıyor → oblik açıda ~µs TA hatası → CP aşımı →
+gNB kapalı-çevrim TA'sı NTN gecikmesi altında salınıyor (17↔46, 153 komut).
+
+**Neden config, kod değil**: `config_ue.c`'deki dairesel model Dünya *merkezli*
+yörünge varsayıyor (`radius = |pos|` ≈ 6398 km, `omega = |v|/radius`), HAPS'ın
+2 km loiter çemberi için tamamen yanlış — `vel_mag > 1000` eşiğini düşürmek
+yanlış `omega` verip durumu kötüleştirirdi. Bunun yerine SIB19 tazeleme
+periyodunu kısaltmak: 20 s'de platform yalnız ~16° dönüyor, düz-çizgi hatası
+~80 m (~0.5 µs gidiş-dönüş) → CP'nin çok içinde. `s40` seçildi (`s20` denendi:
+düzeltiyor ama T430 her 20 s'de dolduğu için tekrar-RA/kopma churn'ü yaratıyordu;
+`s40` → 20 s okuma / 40 s dolum arası 2:1 pay, kaçırılan bir SI penceresini
+tolere ediyor).
+
+**Test sonucu (Deney 26 yeniden koşuldu)**:
+
+| geometri | önce (s240) | sonra (s40) |
+|---|---|---|
+| offset 0 (zenit) | temiz | **temiz** (regresyon yok) |
+| offset 15k | UL BLER ~30s'de 0→%100, 3/3, 580 hata, TA_COMMAND 17↔46 salınım (153) | **UL BLER tüm 220s boyunca 0**, 2/2, tek temiz bağlantı, TA_COMMAND nazik 30/32 (18–33) |
+| offset 25k | UL BLER ~%100 | **UL BLER tüm 210s boyunca 0**, tek bağlantı, `timing_advance_ntn` 1652 sabit |
+
+`timing_advance_ntn` artık kararlı (offset 15k'da ~1285–1296, önce 1418↔1268
+salınıyordu); gNB kapalı-çevrim TA'sı kararlı (nazik ±1 adım). Offset 35k hâlâ
+senkron olmuyor — o ayrı bir sorun (düşük-açı senkron kırılganlığı, bu makinede
+bilinen, Deney 2/12/20/26).
+
+**Not** — kalan model kısıtı: `drift`/`accel` hâlâ 0 yayınlanıyor ve UE efemeris
+propagasyonu hâlâ doğrusal; bu düzeltme yalnız hatayı sınırlıyor (dolayısıyla
+`val430`'ı çok yükseltmek yine çöküşü geri getirir). Tam düzeltme için
+`config_ue.c`'ye HAPS loiter-merkezli dairesel dal eklemek veya `haps_channel.c`'de
+gerçek `drift` yayınlamak gerekir — ayrı bir iş.
