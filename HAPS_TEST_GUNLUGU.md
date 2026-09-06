@@ -2031,7 +2031,7 @@ arasında eşik var (15 kHz SCS'in ~%1'i).
 | 4 | 3.32 | **−12.84** | ❌ | 6101 |
 | 5 | 1.29 | **−12.92** | ❌ | 6990 |
 
-**Başarı oranı: 2/5 (%40).** Beş koşu da LOS. Ayrım tamamen **donmuş
+**35k başarı oranı: 2/5 (%40).** Beş koşu da LOS. Ayrım tamamen **donmuş
 gölge-sönümleme çekiminde**: netgain ≥ −11.5 → senkron (2/2); netgain ≤ −12.8 →
 senkron yok (3/3). 3 başarısız koşu da makine yükünden değil (sim gerçek-zamandan
 hızlı koştu, 255–298 sn), tek bir "Initial sync successful" bile yok — hücre hiç
@@ -2040,6 +2040,28 @@ uçurum var** (kapalı-çevrim kazanç yok, NTN ön-telafisi yok, SIB19 öncesi 
 kırılgan faz). FO comp yakalama *hızına* yardım ediyor (koşu 3: 268 fail) ama
 −12.8 dB linki kurtaramıyor. suburban 27°'de σ_SF=1.14 dB → LOS netgain ~−10.7…
 −13.1 arası saçılıyor, yarısı uçurumun kötü tarafında.
+
+**Karşılaştırma — 15k (~52°), aynı config, 5 koşu**
+
+| koşu | DL netgain (donmuş) | RRC | synchFail |
+|---|---|---|---|
+| 1 | −7.64 | ✅ | 28 |
+| 2 | −6.15 | ✅ | 49 |
+| 3 | −8.14 | ✅ | 45 |
+| 4 | −7.62 | ✅ | 55 |
+| 5 | −8.82 | ✅ | 41 |
+
+**15k başarı oranı: 5/5 (%100).** Beş koşu da LOS, netgain −6.2…−8.8 — hepsi
+~−12 dB uçurumunun rahatça üstünde. synchFail 28–55, zenite (~30) yakın. FO comp
+~97 Hz ofsi 1–3 Hz'e düzeltiyor. Senkron sorunu **yalnızca düşük yükseklik
+açısına özgü**: 52°'de link sağlıklı (−6…−9), 27°'de LOS netgain ~−12'ye
+düşüyor (yakalama uçurumu) + NLOS olasılığı artıyor.
+
+| yükseklik açısı | DL netgain (LOS) | senkron oranı | synchFail |
+|---|---|---|---|
+| ~90° (zenit) | ~−6 | ✅ (referans) | ~26–52 |
+| ~52° (15k) | −6…−9 | **5/5** | 28–55 |
+| ~27° (35k) | −11…−13 | **2/5** | 268–7000 |
 
 **Sonuç**: ⚠️ Kısmen — kök neden bulundu ve kaldırıldı, ama 27° yine ~%40
 senkron. Asıl neden **telafi edilmemiş ~184 Hz DL taşıyıcı Doppler** (varsayılan
