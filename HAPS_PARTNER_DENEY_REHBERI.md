@@ -428,6 +428,16 @@ Taban senaryo (aksi belirtilmedikçe): banliyö/kırsal, zenit (yükseklik açı
 | **Beklenen** | 3/3 `RRC_CONNECTED`, `n_pairs=2` **her iki yönde de** (gerçek downlink 2x1 MISO + uplink 1x2 SIMO) doğrulandı; DL/UL BLER ≈0 (2/3 koşuda 0 UL hata, 1 koşuda run sonunda 2/356 hata + gNB out-of-sync bayrağı, izole); 1x1 regresyon temiz |
 | **Partner karşılığı** | Bir kanal-nesnesinin TX/RX boyutu, GÖNDEREN'in gerçek TX anten sayısı × ALICI'nın gerçek RX anten sayısı olmalı — kendi kodunuzda bu ikisini karıştırmayın; ayrıca gNB'nizin gerçekten 1-RX-antenli bir UE'ye rank-1/diversity PDSCH gönderebildiğini doğrulayın |
 
+### Deney 34 — Modellenmiş gerçek UE yörüngesi: gerçek Doppler kayması (Adım 53)
+
+| | |
+|---|---|
+| **Fiziksel değişken** | UE'nin gerçek konumu/hızı (düz-çizgi yörünge) — daha önce UE hep sabit orijindeydi, sadece platform hareket ediyordu |
+| **Bizim knob** | `HAPS_UE_TRAJECTORY_SPEED_MPS`/`HAPS_UE_HEADING_DEG` (yeni, `HAPS_UE_SPEED_MPS`'ten bağımsız) — her iki process'e de aynı değer |
+| **Kök neden (önceki sınırlama)** | `pos_ue` kanal-simülasyon kodunda sabit `(0,0,0)`'dı; `HAPS_UE_SPEED_MPS` sadece izotropik yerel-saçılma Doppler YAYILIMINI (`fd_local`) besliyordu, gerçek bir konum/hız hiç yoktu → yönlü Doppler KAYMASI hep sadece platform kaynaklıydı |
+| **Beklenen** | 50 m/s → ~53/81 Hz UL/DL taşıyıcı kayması (DL/UL oranı = frekans oranıyla ölçüştü: 1.541 ölçülen vs 1.5437 teorik); 250 m/s (900 km/h) → ~261 Hz UL, koşu boyunca değişen geometriyle azalıyor; UE'nin kendi SIB19 ön-telafisi bundan habersiz kalıyor (spec-doğru, sadece platform efemerisi telafi edilir); bağlı-mod 900 km/h'e kadar 0 UL/DL hatasıyla emiyor |
+| **Partner karşılığı** | Kendi implementasyonunuzda UE'nin gerçek konumunu zamanla değiştirin ve Doppler'i göreli hızdan (platform hızı EKSİ UE hızı, görüş hattına izdüşümü) hesaplayın — sadece platform hızından hesaplamak UE hareketinin taşıyıcı-kayması etkisini tamamen kaçırır |
+
 ---
 
 ## 4. Bizim ölçtüğümüz değerler (karşılaştırma için)
@@ -483,6 +493,7 @@ büyüklük mertebesi**.
 | 31 | 2x1/1x2 MIMO düzeltmesi (yön-bazlı n_tx/n_rx) | `load_channellist()`'in yön-bazlı olmaması düzeltildi (Adım 51) · artık RRC_CONNECTED, 0 kopma, BLER~0, SINR 39.0dB · ama downlink 2x2+uplink 1x1'e çözülüyor, gerçek asimetrik korelasyon henüz uçtan uca kanıtlanmadı |
 | 32 | Gerçek 2x2 MIMO yeniden test | Adım 36'nın "artık bağlanamıyor" bulgusu 3/3 koşuda üretilemedi · n_pairs=4 doğrulandı · UL BLER≈0, netgain −4.1…−6.8dB taban ile tutarlı · 1x1 regresyon temiz · şu an bilinen açık bir 2x2 regresyonu yok |
 | 33 | Gerçek asimetrik 2x1/1x2 MIMO (Adım 52) | Her düğüme kendi gerçek anten sayısı verildi (gNB 2/2, UE 1/1) · 3/3 RRC_CONNECTED, n_pairs=2 HER İKİ yönde de · DL/UL BLER≈0 (1 koşuda run sonunda izole UL episodu) · Adım 35'in "asimetrik korelasyon uçtan uca kanıtlanmadı" açık konusu kapandı |
+| 34 | Gerçek UE yörüngesi / Doppler kayması (Adım 53) | UE artık gerçek konum/hıza sahip · 50 m/s → ~53/81Hz UL/DL kayma (DL/UL oranı teorikle tam eşleşti) · 250 m/s → ~261Hz UL · UE'nin SIB19 ön-telafisi bundan habersiz (spec-doğru) · bağlı-mod 900km/h'e kadar 0 hata · Deney 25/27'nin "sadece yayılma, kayma yok" sınırlaması kapandı |
 
 ### 4.3 Yükseklik açısı — LOS netgain teorik eğrisi (tüm senaryolar için ortak)
 

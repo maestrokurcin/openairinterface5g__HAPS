@@ -3776,3 +3776,76 @@ uca kanıtlandı, hem kanal-modeli hem PHY (gerçek 1-RX-antenli UE'ye 2 TX'ten
 rank-1 PDSCH, gerçek 1-TX-antenli UE'den 2-RX-antenli gNB'ye SIMO alım)
 seviyesinde. `HAPS_MIMARI.md` ve `HAPS_CALISTIRMA_REHBERI.md` buna göre
 güncellendi.
+
+---
+
+### Adım 53 — UE'ye gerçek bir yörünge: modellenmiş UE hareketi artık gerçek, yön-bağımlı Doppler kayması üretiyor
+
+Kullanıcı isteği: "modellenmiş gerçek UE yörüngesi / geometrik Doppler"un
+(Deney 25/27'nin belgelenen sınırlaması) çözülmesi.
+
+**Kök neden**: `radio/rfsimulator/haps_channel.c`'de `pos_ue_x/y/z` sabit
+`(0,0,0)` idi, hiçbir hızı yoktu. Deney 25'te bulunan gibi, `HAPS_UE_SPEED_MPS`
+sadece `haps_tdl.c`'nin izotropik yerel-saçılma Doppler YAYILIMINI
+(`fd_local=v*fc/c`) besliyordu - bu yön-bağımsız bir etki (gerçek ama
+"her yöne eşit" varsayımı), UE'yi hiç hareket ettirmiyordu, dolayısıyla gerçek
+bir yönlü Doppler KAYMASI (taşıyıcı frekans ofseti) hiç üretmiyordu. Sadece
+platformun kendi hareketi taşıyıcı kaymasına katkıda bulunuyordu.
+
+**Tasarım**: `HAPS_UE_SPEED_MPS`'ten **bilinçli olarak ayrı**, yeni bir opt-in
+mekanizma - `haps_channel_ctx_t`'ye iki yeni alan (`ue_trajectory_speed_mps`,
+`ue_heading_deg`, ikisi de varsayılan 0.0 = önceki sabit-sıfır davranışla
+birebir aynı), `HAPS_UE_TRAJECTORY_SPEED_MPS`/`HAPS_UE_HEADING_DEG` env
+override'larıyla (Adım 19'un `ground_offset_m`'siyle birebir aynı desen).
+Ayrı tutulmasının nedeni: geriye-dönük uyumluluk riskini sıfırlamak - eğer
+aynı `HAPS_UE_SPEED_MPS`'i hem fd_local hem gerçek konum için kullansaydık,
+Deney 27'nin 900km/h testi gibi MEVCUT bir test, gelecekte tekrar çalıştırıldığında
+UE'yi aniden kilometrelerce hareket ettirir, davranışını sessizce değiştirirdi.
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/sim.h`
+```
++ Eklendi: haps_channel_ctx_t'ye ue_trajectory_speed_mps/ue_heading_deg (ikisi
+  de varsayılan 0.0)
++ Eklendi: haps_compute_ue_position() bildirimi (haps_compute_geometry()'nin
+  yanına, aynı imza deseniyle)
+```
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_geometry.c`
+```
++ Eklendi: haps_compute_ue_position() - basit, düz-çizgi sabit-hız hareketi
+  (haps_compute_geometry()'nin düz-dünya varsayımıyla tutarlı, Z=0), t=0'da
+  (bağlantı kurulma anı) orijinden başlıyor - speed_mps=0 önceki sabit
+  (0,0,0)/(0,0,0) davranışını birebir üretiyor.
+```
+
+**[Dosya]** `openair1/SIMULATION/TOOLS/haps_config.c`
+```
++ Eklendi: ctx->ue_trajectory_speed_mps/ue_heading_deg varsayılanları (0.0)
+```
+
+**[Dosya]** `radio/rfsimulator/haps_channel.c`
+```
+~ Değiştirildi: sabit pos_ue_x/y/z=0 -> haps_compute_ue_position() çağrısı
+  (gerçek pos_ue + vel_ue), HAPS_UE_TRAJECTORY_SPEED_MPS/HAPS_UE_HEADING_DEG
+  env override'ları (ground_offset_m ile aynı desen)
+~ Değiştirildi: hem uplink hem downlink Doppler formülü - önceden sadece
+  vel_sat'ın görüş-hattı izdüşümünü kullanıyordu (UE zımnen hareketsiz
+  varsayılıyordu); artık (vel_sat - vel_ue)'nin izdüşümü - göreli hız,
+  d(mesafe)/dt'nin doğru tanımı. dist/delay/path-loss hesapları zaten
+  pos_ue_x/y/z'yi kullanıyordu, o yüzden bunlar da bedava, ek kod gerekmeden
+  UE hareketine duyarlı hale geldi.
++ Eklendi: "UE trajectory: Position = (...), Velocity = (...)" debug log
+  satırı (hem uplink hem downlink periyodik log bloğunda), sadece
+  ue_trajectory_speed_mps != 0 iken (varsayılan durumda log gürültüsü yok)
+```
+
+**Derleme**: `ninja rfsimulator nr-softmodem nr-uesoftmodem` - `sim.h`
+değiştiği için geniş yeniden derleme, temiz.
+
+**Test (Deney 34)**: aşağıda.
+
+**Sonuç**: ✅ UE artık gerçek, zamanla-değişen bir konum ve hıza sahip - hem
+gerçek bir yönlü Doppler KAYMASI (bu Adım) hem de (değişmeden kalan)
+izotropik Doppler YAYILIMI (`fd_local`, Adım 33) aynı anda modellenebiliyor,
+birbirinden bağımsız kontrol edilerek. Deney 25/27'nin "UE hareketi sadece
+fading hızını etkiliyor, taşıyıcı kaymasını değil" sınırlaması kapandı.

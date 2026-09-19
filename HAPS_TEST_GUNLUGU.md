@@ -202,8 +202,9 @@ yönde değişmesini beklediğimiz — deneyin işi bunu doğrulamak ya da çür
 |---|---|---|
 | UE'yi sabitle | `HAPS_UE_SPEED_MPS=0` | Küçük-ölçekli sönümleme donar → BLER daha kararlı, kopma yok |
 | Hızlı UE | `HAPS_UE_SPEED_MPS=30` (108 km/h) | Doppler yayılımı↑ → daha hızlı fade → BLER↑, ara sıra kopma |
-| Ekstrem hız UE (tren/uçak) | `HAPS_UE_SPEED_MPS=83` (300), `139` (500), `250` (900 km/h) | `fd_local` doğrusal ↑ (250 m/s → 2075 Hz); stokastik UL BLER episodları sıklaşır ama HARQ toparlar. **Model UE hareketini taşıyıcı kayması değil yalnız yayılma olarak veriyor** (Deney 27) |
-| Bileşik Doppler (platform + UE) | `HAPS_UE_SPEED_MPS=30` (loiter varsayılan açık) | Taşıyıcı kayması = yalnız platform (~15 Hz); UE = yalnız yayılma. Bağımsız toplanır, etkileşim yok (Deney 25) |
+| Ekstrem hız UE (tren/uçak) | `HAPS_UE_SPEED_MPS=83` (300), `139` (500), `250` (900 km/h) | `fd_local` doğrusal ↑ (250 m/s → 2075 Hz); stokastik UL BLER episodları sıklaşır ama HARQ toparlar. Sadece Doppler YAYILIMI - gerçek kayma için bkz. `HAPS_UE_TRAJECTORY_SPEED_MPS` aşağıda (Deney 27, Adım 53 öncesi) |
+| Bileşik Doppler (platform + UE) | `HAPS_UE_SPEED_MPS=30` (loiter varsayılan açık) | Taşıyıcı kayması = yalnız platform (~15 Hz); UE = yalnız yayılma. Bağımsız toplanır, etkileşim yok (Deney 25, Adım 53 öncesi) |
+| **Gerçek UE yörüngesi (Adım 53)** | `HAPS_UE_TRAJECTORY_SPEED_MPS=50` (veya `250`) `HAPS_UE_HEADING_DEG=0` — **her iki process'e de** | `HAPS_UE_SPEED_MPS`'ten bağımsız, düz-çizgi gerçek hareket → gerçek, frekansa-doğru-ölçeklenen yönlü Doppler KAYMASI (50 m/s → ~53/81 Hz UL/DL, 250 m/s → ~261 Hz UL); UE'nin kendi SIB19 ön-telafisi bundan habersiz (spec-doğru), bağlı-mod 900 km/h'e kadar 0 hatayla emiyor (Deney 34) |
 | TA / gecikme kompanzasyonu (uçtan uca) | `HAPS_GROUND_OFFSET_M` süpürmesi + `HAPS_DEBUG_TA=1` | Offset ≥15k + loiter → UL BLER ~30s'de 0→%100 çöküyor (sürekli kapalı-çevrim TA yok); platform donmuşsa temiz (Deney 26) |
 | Platformu dondur (temiz) | `HAPS_PLATFORM_SPEED_MPS=0 HAPS_LOITER_RADIUS_M=0` | Platform hareketi (loiter Doppler'i + zamanla değişen gecikme) kapanır; NTN-TDL sönümleme + saniyelik yol-kaybı/SIB19 tazelemesi aynen kalır (Adım 44). Tek değişkenli. |
 | Loiter yarıçapı / hızı ayarla | `HAPS_LOITER_RADIUS_M=1000` / `HAPS_PLATFORM_SPEED_MPS=55` | Yalnızca `HAPS_MOBILE*` ailesinde; loiter geometrisi/Doppler'i ölçekler |
@@ -2360,3 +2361,63 @@ dakika) veya daha fazla koşuyla doğrulanabilir, şimdilik düşük öncelikli 
 2x1 MISO + uplink genuine 1x2 SIMO, `n_pairs=2` iki yönde de) artık uçtan uca
 kanıtlandı. Adım 35'in bıraktığı "gerçek asimetrik korelasyon henüz uçtan uca
 egzersiz edilmiyor" açık konusu kapandı.
+
+---
+
+### Deney 34 — Modellenmiş gerçek UE yörüngesi: ilk kez gerçek, yön-bağımlı Doppler kayması (Adım 53)
+
+- **Tarih**: 2026-09-19
+- **Hipotez**: Adım 53'ün eklediği `haps_compute_ue_position()` + göreli-hız
+  Doppler düzeltmesi, artık UE hareketinden kaynaklı GERÇEK bir taşıyıcı
+  Doppler kayması üretiyor mu (Deney 25/27'de sadece `fd_local` - fading
+  YAYILIMI - etkileniyordu, gerçek bir kayma hiç yoktu)? Bağlantı bu yeni,
+  potansiyel olarak büyük, UE'nin kendi NTN ön-telafisinin haberi olmadığı bir
+  artık (residual) Doppler'e dayanıklı mı?
+- **Baz senaryoya göre değişen**: `HAPS_UE_TRAJECTORY_SPEED_MPS`/`HAPS_UE_HEADING_DEG`
+  env var'ları (yeni, Adım 53), baz `gnb/nrue.haps_mobile_ntn_38811.conf`
+  üzerinde - hem gNB hem UE process'ine aynı değerler verilmeli (her ikisi de
+  kendi yönünün kanal nesnesini bağımsız hesaplıyor).
+- **Komutlar**: baz senaryoyla aynı, ek olarak `HAPS_UE_TRAJECTORY_SPEED_MPS=50`
+  (veya `250`) `HAPS_UE_HEADING_DEG=0` her iki process'e de verildi.
+
+**Ölçülen**
+
+| Test | UL Doppler (t≈0) | DL Doppler (t≈0) | UE'nin kendi SIB19 ön-telafi tahmini | DL/UL BLER | Kapanış |
+|---|---|---|---|---|---|
+| Regresyon (env yok) | ~0.9–3 Hz (değişmedi) | — | — | — | temiz, "UE trajectory" log satırı hiç basılmadı (0 adet) |
+| 50 m/s (koşu 1, RNTI 47cb) | 52.7 Hz → 50.9 Hz (5s'de) | 81.2 Hz → 79.1 Hz | sabit ~1.0/0.7 Hz (UL/DL) | DL 0.048–0.059 (0 hata) / UL 0.0003–0.0007 (0 hata) | temiz `Bye.` |
+| 50 m/s (koşu 2, RNTI 9b06) | ~48 Hz | — | — | DL 0.066 (0 hata) / UL 0.001 (0 hata) | temiz `Bye.` |
+| 250 m/s (900 km/h, RNTI d8aa) | 261 Hz → 95–130 Hz (koşu boyunca düşüyor) | (~1.54× UL, DL/UL frekans oranıyla) | sabit ~1.4/0.9 Hz (UL/DL) | DL 0.048–0.066 (0 hata) / UL 0.0003–0.004 (0 hata) | temiz `Bye.`, SINR 39.7→29.1 (UE uzaklaştıkça, beklenen) |
+
+**Doğrulama/sağlamlık kontrolleri**: (1) `HAPS_DEBUG_38811`'siz de basılan yeni
+"UE trajectory: Position=..., Velocity=..." log satırı, konumun tam
+`hız×t`'ye göre doğrusal büyüdüğünü teyit etti (örn. 50 m/s: 10.85→60.85→110.85m,
+tam 50m/s adımlarla). (2) **DL/UL Doppler oranı ölçüldü: 81.2/52.7 = 1.541 —
+teorik `f_DL/f_UL` = 2489.15/1612.65 = **1.5437** ile pratikte tam eşleşiyor**
+(bağımsız bir doğruluk kanıtı, formülün frekansa doğru ölçeklendiğini gösterir).
+(3) UE'nin kendi `k_offset:`/`DL Doppler shift:` log satırı (SIB19-tabanlı,
+sadece platform efemerisinden hesaplanan ön-telafi) **hiç değişmedi** (UE hızı
+50→250 m/s'ye çıksa bile ~1 Hz civarında sabit kaldı) — bu **spec-doğru**:
+gerçek NTN Doppler ön-telafisi sadece bilinen/öngörülebilir platform tarafını
+telafi eder, UE'nin kendi anlık hızını bilemez/telafi edemez; UE'nin kendi
+hareketinden kaynaklı kayma her zaman kapalı-çevrim (bağlı-modda sürekli
+CFO izleme) tarafından emilmek zorunda — tıpkı karasal ağlarda olduğu gibi.
+- **Not (koşu 3, 50 m/s)**: bir koşuda gNB "could not open a socket" hatası
+  verdi (önceki koşunun soketi henüz serbest kalmamıştı, saf bir test-sıralama
+  yarış durumu, kodla ilgisi yok) - geçersiz sayıldı, tekrar edilmedi (2/2
+  geçerli 50 m/s koşusu zaten tutarlıydı).
+
+**Yorum**: 250 m/s'de bile 0 UL/DL hatası — bağlı-moddaki (post-sync) sürekli
+CFO izleme, UE'nin kendi hareketinden kaynaklı ~260 Hz'e kadar (15 kHz SCS'nin
+~%1.7'si) tamamen telafi edilmemiş bir Doppler'i sorunsuz emiyor. Bu, Deney
+28'in bulduğu ön-senkron (cell-search, kapalı-çevrim yok) hassasiyetinden
+(97-184 Hz aralığında zaten bozulmaya başlıyordu) tamamen farklı bir rejim —
+bağlı-mod çok daha toleranslı. Doppler'in koşu boyunca azalması (261→95-130 Hz)
+UE'nin platformun altından uzaklaşırken görüş-hattı ile hız vektörü arasındaki
+açının değişmesinden kaynaklanan gerçek, beklenen bir geometri etkisi.
+
+**Sonuç**: ✅ Hipotez doğrulandı — UE artık gerçek bir yörüngeye sahip, gerçek
+ve frekansa-doğru-ölçeklenen bir taşıyıcı Doppler kayması üretiyor (`fd_local`
+fading yayılımından bağımsız, ayrı bir mekanizma). Bağlı-mod 900 km/h'e kadar
+sorunsuz. Deney 25/27'nin "UE hareketi sadece fading hızını etkiliyor,
+taşıyıcı kaymasını değil" sınırlaması kapandı.
