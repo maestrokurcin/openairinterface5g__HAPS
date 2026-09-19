@@ -3605,3 +3605,102 @@ korelasyonu yanlış tespit ediyor (Adım 8 / Round 3 sorunu). feeder ≲ 0.02ms
 yalnız çok kısa besleme linki için çalışıyor; gerçek çözüm gNB'yi ayrı bir yer
 düğümü olarak modellemeyi gerektirir** (büyük değişiklik). Env var teşhis aracı
 olarak tutuldu (Adım 42 `HAPS_DEBUG_LOS_SWEEP` gibi).
+
+---
+
+### Adım 51 — 2x1/1x2 MIMO'nun RRC'ye ulaşmama sorunu düzeltildi: `load_channellist()`'e opt-in yön-bazlı `n_tx`/`n_rx`
+
+**Tarih**: 2026-09-08 · Test Günlüğü Deney 31 ile birlikte.
+
+Kullanıcı isteği: "eksikler" listesinde sayılan MIMO maddelerinden (2x1/1x2 RRC
+sınırı, 4x4, çoklu-ışın, mevcut 2x2'yi genişletme) arasından **2x1/1x2'nin
+RRC'ye ulaşmasını sağlamak** seçildi — Adım 35'te bilinçli olarak kapsam dışı
+bırakılan, HAPS'a özel olmayan paylaşılan bir OAI sınırı. Kullanıcıya bu geçmiş
+karar hatırlatıldı ve iki yaklaşım arasında seçim sorulduğunda **düşük riskli /
+opt-in düzeltme** tercih edildi: mevcut hiçbir config'in davranışını
+değiştirmeyen, yalnızca açıkça talep edildiğinde devreye giren bir çözüm.
+
+**Kök neden (Adım 35'in izini kendim doğruladım, aynı sonuç)**:
+`radio/rfsimulator/simulator.cpp:568`'deki `load_channellist(tx_num_channels,
+rx_num_channels, ...)` her süreç (gNB veya UE) başına **tek** bir çağrı — bu
+sürecin **kendi yerel** RU/anten sayısını, config'teki channel-list'in **her**
+elemanına (hem "downlink" `rfsimu_channel_enB0` hem "uplink" `rfsimu_channel_ue0`
+adlı nesne, ikisi de her iki config'te tanımlı) körü körüne uyguluyor. Hangi
+nesnenin çalışma anında gerçekten kullanıldığını da izledim
+(`allocCirBuf()`, simulator.cpp:344-361): gNB (server rolü) yalnız
+`rfsimu_channel_ue<N>` adını arıyor (uplink — UE'den gelen sinyali temsil eder),
+UE (client rolü) yalnız `rfsimu_channel_enB<ru_id>` adını arıyor (downlink).
+Simetrik config'lerde (1x1, 2x2) "kendi yerel değerim" ile "asıl ihtiyacım olan
+karşı tarafın TX sayısı" zaten aynı olduğu için sorun gizli kalıyor; asimetrik
+config'te (gNB TX=2/RX=1, UE TX=1/RX=2, "cross-matched") **gNB'nin gerçekte
+kullandığı uplink nesnesi UE'nin TX=1'i yerine gNB'nin kendi TX=2'sini alıyor**
+(ve simetrik olarak UE'nin kullandığı downlink nesnesi gNB'nin TX=2'si yerine
+UE'nin kendi TX=1'ini) — bu yanlış boyutlu kanal matrisi SSB'ye ulaşmadan
+sinyali bozuyor, UE hiç senkron olamıyor.
+
+`[Dosya]` `openair1/SIMULATION/TOOLS/sim.h`
+```
++ Eklendi: CHANNELMOD_MODEL_NTX_PNAME "n_tx", CHANNELMOD_MODEL_NRX_PNAME "n_rx"
+  - CHANNELMOD_MODEL_PARAMS_DESC'e iki yeni TYPE_INT alan, defintval=-1 (unset)
+```
+
+`[Dosya]` `openair1/SIMULATION/TOOLS/random_channel.c` (`load_channellist()`)
+```
+~ Değiştirildi: her channel-list elemanı için artık pindex_NTX/pindex_NRX
+  okunuyor; instance_ntx/instance_nrx >= 0 ise new_channel_desc_scm()'e
+  fonksiyon argümanı (nb_tx/nb_rx) yerine bu override geçiliyor, aksi halde
+  (varsayılan -1) eskisi gibi fonksiyon argümanı kullanılıyor.
+```
+
+**Geriye dönük uyumluluk**: `n_tx`/`n_rx` set etmeyen HER config (yani şu anki
+TÜM SCM_A/TDL/SAT_LEO/HAPS senaryoları) davranışça birebir aynı kalıyor — bu
+generic, HAPS'a özel olmayan ama HAPS test config'lerinde kullanılan bir
+altyapı değişikliği (Adım 26'nın "partnerin şemasına modüler mimari" ruhuna
+uygun: paylaşılan mekanizma bozulmadan genişletildi).
+
+`[Dosya]` `haps_test/gnb.haps_mobile_ntn_38811_2x1.conf` /
+`haps_test/nrue.haps_mobile_ntn_38811_2x1.conf`
+```
+~ gNB'nin gerçekte kullandığı "rfsimu_channel_ue0" elemanına n_tx=1 eklendi
+  (gerçek UE TX sayısı; öncesinde yanlışlıkla gNB'nin kendi TX=2'si kullanılıyordu)
+~ UE'nin gerçekte kullandığı "rfsimu_channel_enB0" elemanına n_tx=2 eklendi
+  (gerçek gNB TX sayısı; öncesinde yanlışlıkla UE'nin kendi TX=1'i kullanılıyordu)
+```
+
+**Derleme**: `ninja rfsimulator nr-softmodem nr-uesoftmodem` — temiz.
+
+**Test sonucu (Deney 31)**: ✅ **RRC_CONNECTED'e ilk kez ulaşıldı** — bu tam
+olarak Adım 35'te "KNOWN NOT TO REACH RRC CONNECTION" diye işaretlenen config
+çifti. gNB logu: `CBRA procedure succeeded (UE Connected)`, `Received
+RRCSetupComplete (RRC_CONNECTED reached)`. UE logu: `UE synchronized!`,
+`Generating RRCSetupComplete`. 0 kopma, DL/UL HARQ temiz (`30/0/0/0`,
+`285/0/0/0`), BLER ≈0, ortalama SINR 39.0 dB, PUSCH SNR ~17 dB — sağlık
+profili diğer başarılı Deneylerle aynı. Süreçler `SIGTERM`'de temiz kapandı,
+çökme/assert yok.
+
+**⚠️ Önemli nüans — n_pairs=2 (gerçek asimetrik korelasyon) hâlâ end-to-end
+egzersiz edilmiyor**: Doğru yön-bazlı boyutlarla bu senaryo aslında **downlink
+2x2 (n_pairs=4, zaten Adım 31'de kanıtlanmış) + uplink 1x1 (n_pairs=1, trivial
+SISO)**'ya çözülüyor — gNB TX=2/UE RX=2 eşleştiği (transport'un "cross-matched"
+akış sayısı gereği) ve UE TX=1/gNB RX=1 eşleştiği için, HİÇBİR yön kendi
+içinde gerçekten dikdörtgen (asimetrik) değil. `HAPS_DEBUG_TDL` izi bunu
+doğruluyor: UE tarafı `n_pairs=4`, gNB tarafı `n_pairs=1`. Adım 35'in
+`haps_R_sqrt_21_corr`/n_pairs=2 kodu hâlâ doğru (ayrıca doğrulandı, çökme yok)
+ama bu düzeltmeyle gerçek bir bağlantıda hâlâ egzersiz edilmiyor — bunun için
+tek bir yönün TX≠RX olduğu (örn. gNB TX=2 → UE RX=1, gerçekten alıcı-anten-
+kısıtlı bir UE) bir senaryo gerekir; bu da UE'nin kendi PHY anten-port
+config'ini (RX zincir sayısı) değiştirmeyi gerektiren, ayrı ve daha büyük bir
+iş — bu Adım'ın kapsamı dışında bırakıldı.
+
+**Regresyon kontrolü**: temel senaryo (`gnb/nrue.haps_mobile_ntn_38811.conf`,
+1x1) yeniden koşuldu — `n_tx`/`n_rx` set edilmediği için her iki kanal nesnesi
+de öncekiyle birebir aynı (`nb_tx=1, nb_rx=1`), RRC_CONNECTED'e ulaşıyor
+(`decoded_frame_rx=802`, bu makinenin bilinen yavaş-senkron davranışıyla
+tutarlı, kod regresyonu değil).
+
+**Sonuç**: ✅ Adım 35'in kök nedeni doğrulandı ve genel/opt-in bir düzeltmeyle
+giderildi — 2x1/1x2 artık gerçekten RRC'ye ulaşıyor, hiçbir mevcut senaryo
+etkilenmedi. `HAPS_MIMARI.md`'nin "Bilinen sınırlar" tablosu ve
+`HAPS_CALISTIRMA_REHBERI.md`'nin Senaryo 8 satırı buna göre güncellendi.
+Gerçek n_pairs=2 asimetrik korelasyonu uçtan uca kanıtlamak (gerçekten
+alıcı-anten-kısıtlı bir tek yön) ayrı bir Adım olarak kalıyor.

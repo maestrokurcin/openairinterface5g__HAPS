@@ -136,7 +136,7 @@ Hiçbiri kalıcı bir config alanı değil — hepsi bilinçli olarak **opt-in, 
 | Sönümleme çok hızlı/yavaş evriliyor | `fd_local`/UE hızı, `HAPS_UE_SPEED_MPS` ile kontrol et | `haps_tdl.c` (`HAPS_UE_SPEED_DEFAULT_MPS`) |
 | Sönümleme hiç yok / TDL etkisiz | `enable_small_scale_fading=false` (sadece `_38811` ailesinde true) ya da `channel_length` yanlış | `haps_config.c`, `random_channel.c`'nin `channel_length` ataması |
 | MIMO (2x2) tap'ları garip/korelasyonsuz görünüyor | `n_pairs` yanlış hesaplanmış, ya da yanlış korelasyon matrisi seçilmiş | `haps_tdl.c` (`haps_R_sqrt_22_medium`/`haps_R_sqrt_21_corr`, `n_pairs` mantığı) |
-| Asimetrik MIMO (2x1/1x2) RRC'ye hiç ulaşmıyor | **HAPS'a özel değil** - `random_channel.c`'nin `load_channellist()`'i uplink/downlink modellerine yön-bazlı olmayan aynı nb_tx/nb_rx veriyor (bkz. Adım 35) | bilinçli olarak açık bırakıldı, düzeltilmedi |
+| Asimetrik MIMO (2x1/1x2) RRC'ye ulaşmıyordu | **HAPS'a özel değildi** - `random_channel.c`'nin `load_channellist()`'i uplink/downlink modellerine yön-bazlı olmayan aynı nb_tx/nb_rx veriyordu (bkz. Adım 35) | **düzeltildi (Adım 51 / Deney 31)**: opt-in `n_tx`/`n_rx` per-instance override eklendi, mevcut config'ler etkilenmedi |
 | SIB19/TA bilgisi UE'de tutarsız | Earth-centered çerçeve dönüşümü (`radius_earth` offset) | `haps_channel.c`'nin SIB19 güncelleme bloğu |
 | Yeni bir HAPS enum'u beklenmedik davranıyor | `haps_config_new()`'deki varsayılan atamalar | `haps_config.c` |
 | `librfsimulator.so` değişikliklerimi yansıtmıyor gibi | Sadece `ninja nr-softmodem` çalıştırılmış, `rfsimulator` unutulmuş | her zaman `ninja rfsimulator nr-softmodem nr-uesoftmodem` birlikte |
@@ -147,7 +147,7 @@ Detaylı gerekçe/test kayıtları için `HAPS_GELISTIRME_GUNLUGU.md`'nin ilgili
 
 - `fd_local` artık gerçek UE hızından türetiliyor (Adım 33) → ara sıra gerçekçi bağlantı kesilmesi (bilinçli kabul edildi)
 - Ka-bant DS tablo seçimi canlı test edilmedi (Adım 32, kanıtlanmış Ka-bant senaryo yok)
-- MIMO: 1x1/2x2 tam çalışıyor, 2x1/1x2 kod-seviyesinde doğrulandı ama RRC'ye ulaşmıyor (paylaşılan OAI sınırı, Adım 35), 4x4 hiç yok
+- MIMO: 1x1/2x2 tam çalışıyor; 2x1/1x2 artık RRC'ye de ulaşıyor (Adım 51 / Deney 31 düzeltmesi), ama bu belirli config çifti "cross-matched" transport akış sayıları yüzünden gerçekte downlink 2x2 + uplink 1x1'e çözülüyor - gerçek n_pairs=2 asimetrik korelasyonu uçtan uca kanıtlamak (alıcı-anten-kısıtlı tek yön) hâlâ ayrı bir iş; 4x4 hiç yok
 - Resmi Docker imaj zinciri ve `oai-amf` hiç test edilmedi (Adım 34, sadece hafif özel bir eşdeğer doğrulandı)
 - İyonosferik sintilasyon eklenmedi (Adım 22, orta enlemde ~0 varsayıldı)
 - `SAT_LEO_TRANS/REGEN` bu makinede hiç doğrulanmadı (bu proje HAPS'a odaklı)

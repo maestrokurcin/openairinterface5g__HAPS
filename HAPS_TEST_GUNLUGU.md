@@ -2176,3 +2176,69 @@ alıcısı platform saatine referanslı (gNB = platform), o yüzden UE'nin `ta-C
 Düzgün transparent-payload modeli gNB'yi ayrı bir yer düğümü olarak (PRACH RX /
 zamanlama referansı besleme gecikmesiyle kaydırılmış) modellemeyi gerektirir —
 ayrı, büyük bir iş.
+
+---
+
+### Deney 31 — 2x1/1x2 MIMO düzeltmesi: `load_channellist()`'e yön-bazlı `n_tx`/`n_rx` sonrası RRC bağlantısı
+
+- **Tarih**: 2026-09-08
+- **Hipotez**: Adım 35'te "KNOWN NOT TO REACH RRC CONNECTION" diye işaretlenen
+  `gnb/nrue.haps_mobile_ntn_38811_2x1.conf` çifti, `load_channellist()`'e
+  eklenen opt-in `n_tx` override'ı (Adım 51) ile artık gerçekten RRC'ye ulaşır
+  mı?
+- **Baz senaryoya göre değişen**: kod (`sim.h` + `random_channel.c`, Adım 51)
+  + iki config dosyasına `n_tx` eklendi (gNB'nin kullandığı `rfsimu_channel_ue0`
+  elemanına `n_tx=1`, UE'nin kullandığı `rfsimu_channel_enB0` elemanına
+  `n_tx=2`) — config'ler Adım 35'ten beri değişmemişti.
+- **gNB komutu**:
+  ```
+  MALLOC_ARENA_MAX=1 HAPS_DEBUG_38811=1 HAPS_DEBUG_TDL=1 \
+    ./ran_build/build/nr-softmodem -O ../haps_test/gnb.haps_mobile_ntn_38811_2x1.conf --rfsim
+  ```
+- **UE komutu**:
+  ```
+  MALLOC_ARENA_MAX=1 HAPS_DEBUG_38811=1 HAPS_DEBUG_TDL=1 \
+    ./ran_build/build/nr-uesoftmodem -O ../haps_test/nrue.haps_mobile_ntn_38811_2x1.conf --rfsim
+  ```
+- **Çalıştırma süresi**: gNB 60 sn / UE 50 sn (`timeout`)
+
+**Ölçülen**
+
+| Metrik | Adım 35 (düzeltme öncesi) | Deney 31 (düzeltme sonrası) |
+|---|---|---|
+| gNB'nin kullandığı kanal nesnesi (`rfsimu_channel_ue0`) boyutu | (nb_tx=2, nb_rx=1) — yanlış, gNB'nin kendi TX'i | **(nb_tx=1, nb_rx=1)** — UE'nin gerçek TX'i |
+| UE'nin kullandığı kanal nesnesi (`rfsimu_channel_enB0`) boyutu | (nb_tx=1, nb_rx=2) — yanlış, UE'nin kendi TX'i | **(nb_tx=2, nb_rx=2)** — gNB'nin gerçek TX'i |
+| `HAPS_DEBUG_TDL` (gNB / uplink) | — | `n_pairs=1` (trivial SISO) |
+| `HAPS_DEBUG_TDL` (UE / downlink) | — | `n_pairs=4` (kanıtlanmış 2x2, Adım 31) |
+| UE senkronu | ❌ `synch Failed` tekrar tekrar | ✅ `UE synchronized!` |
+| RRC | ❌ hiç ulaşmadı | ✅ **`RRC_CONNECTED reached`**, `CBRA procedure succeeded` |
+| Kopma (koşu boyu) | — | 0 |
+| DL / UL HARQ | — | `30/0/0/0` / `285/0/0/0` — 0 yeniden iletim |
+| DL / UL BLER | — | ≈0 / 0 |
+| Ortalama SINR (UE) | — | 39.0 dB |
+| gNB PUSCH SNR | — | ~17.3 dB |
+| Kapanış | — | `SIGTERM`'de temiz (`Bye.`), çökme/assert yok |
+
+**Regresyon** (aynı koşuda): temel senaryo (`gnb/nrue.haps_mobile_ntn_38811.conf`,
+1x1, `n_tx`/`n_rx` set edilmemiş) yeniden koşuldu — her iki kanal nesnesi de
+öncekiyle birebir aynı (`nb_tx=1, nb_rx=1`), RRC_CONNECTED'e ulaştı
+(`decoded_frame_rx=802`) — bu makinenin bilinen yavaş-senkron davranışıyla
+tutarlı (bkz. Deney 19 notu), kod regresyonu değil.
+
+**Yorum**
+
+Adım 35'in kök-neden teşhisi (paylaşılan `load_channellist()`'in yön-bazlı
+olmaması) doğrulandı ve düzeltildi. Ama doğru boyutlarla bu **belirli** config
+çifti aslında **downlink 2x2 (n_pairs=4) + uplink 1x1 (n_pairs=1)**'e
+çözülüyor — "cross-matched" transport akış sayıları yüzünden (gNB TX=2↔UE RX=2,
+UE TX=1↔gNB RX=1) hiçbir yön kendi içinde gerçekten asimetrik (dikdörtgen)
+değil. Yani Adım 35'te eklenen `n_pairs=2` (gerçek 2x1/1x2 korelasyon
+matrisi, `haps_R_sqrt_21_corr`) kodu hâlâ doğru çalışıyor (çökme yok, makul
+korelasyon) ama bu senaryoda uçtan uca hâlâ egzersiz edilmiyor — bunun için
+gerçekten alıcı-anten-kısıtlı bir tek yön (örn. UE'nin kendi PHY RX zincir
+sayısı 1'e düşürülmüş, gNB TX=2 kalırken) gerekir, bu da ayrı bir iş.
+
+**Sonuç**: ✅ Hipotez doğrulandı — Adım 35'in bloke ettiği tam senaryo artık
+RRC'ye ulaşıyor, sağlıklı çalışıyor, hiçbir mevcut config etkilenmedi. ⚠️ Ama
+bu, gerçek asimetrik (n_pairs=2) korelasyonun uçtan uca kanıtlanması demek
+değil — o ayrı bir Adım/Deney gerektiriyor.

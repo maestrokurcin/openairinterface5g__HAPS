@@ -32,7 +32,7 @@ ninja -C ran_build/build rfsimulator nr-softmodem nr-uesoftmodem
 | 5 | `HAPS_MOBILE_38811_URBAN` | `gnb.haps_mobile_ntn_38811_urban.conf` | `nrue.haps_mobile_ntn_38811_urban.conf` | Hayır |
 | 6 | `HAPS_MOBILE_38811_DENSE_URBAN` | `gnb.haps_mobile_ntn_38811_dense_urban.conf` | `nrue.haps_mobile_ntn_38811_dense_urban.conf` | Hayır |
 | 7 | MIMO 2x2 | `gnb.haps_mobile_ntn_38811_2x2.conf` | `nrue.haps_mobile_ntn_38811_2x2.conf` | Hayır |
-| 8 | SIMO/MISO 2x1 (⚠️ RRC'ye ulaşmaz, sadece kod testi) | `gnb.haps_mobile_ntn_38811_2x1.conf` | `nrue.haps_mobile_ntn_38811_2x1.conf` | Hayır |
+| 8 | SIMO/MISO 2x1 (✅ Adım 51'den beri RRC'ye ulaşıyor) | `gnb.haps_mobile_ntn_38811_2x1.conf` | `nrue.haps_mobile_ntn_38811_2x1.conf` | Hayır |
 
 **Neden bazıları ek bayrak istiyor?** Senaryo 1-2 (band78, NTN'siz) UE config'lerinde bir `cells = (...)` bloğu yok — frekans/PRB/numeroloji CLI'dan verilmek zorunda. Senaryo 3-8 (band254, NTN) UE config'lerinde bu bilgi zaten `cells` bloğunda var, CLI'ya hiçbir şey eklemeye gerek yok.
 
@@ -114,7 +114,7 @@ MALLOC_ARENA_MAX=1 ./ran_build/build/nr-uesoftmodem -O ../haps_test/nrue.haps_mo
 ```
 gNB logunda `nb_tx_streams 2, nb_rx_streams 2` görmelisin.
 
-### Senaryo 8 — SIMO/MISO 2x1 (⚠️ sadece kod testi)
+### Senaryo 8 — SIMO/MISO 2x1
 
 ```
 # Terminal 1 (gNB)
@@ -126,7 +126,7 @@ MALLOC_ARENA_MAX=1 ./ran_build/build/nr-softmodem -O ../haps_test/gnb.haps_mobil
 cd /home/furkan/openairinterface5g/cmake_targets
 MALLOC_ARENA_MAX=1 ./ran_build/build/nr-uesoftmodem -O ../haps_test/nrue.haps_mobile_ntn_38811_2x1.conf --rfsim
 ```
-**Bu senaryo RRC'ye ulaşmaz** — UE `synch Failed` ile takılı kalır (Adım 35, HAPS'a özel olmayan bir OAI sınırı). `HAPS_DEBUG_TDL=1` ile `haps_tdl.c`'nin `n_pairs=2` kodunun doğru çalıştığını görebilirsin, ama gerçek bir bağlantı bekleme.
+**Bu senaryo artık RRC'ye ulaşıyor** (Adım 51 / Deney 31 düzeltmesi — `load_channellist()`'e opt-in yön-bazlı `n_tx`). `HAPS_DEBUG_TDL=1` ile bakarsan gNB tarafının (uplink, gerçekte kullandığı nesne) `n_pairs=1`, UE tarafının (downlink) `n_pairs=4` olduğunu görürsün — yani bu config, "cross-matched" transport akış sayıları yüzünden gerçekte SISO uplink + kanıtlanmış 2x2 downlink'e çözülüyor, Adım 35'in eklediği gerçek asimetrik (`n_pairs=2`) korelasyon kodu hâlâ uçtan uca egzersiz edilmiyor (ayrı bir bekleyen iş).
 
 ---
 
