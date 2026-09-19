@@ -418,6 +418,16 @@ Taban senaryo (aksi belirtilmedikçe): banliyö/kırsal, zenit (yükseklik açı
 | **Beklenen** | 3/3 `RRC_CONNECTED`, `n_pairs=4` doğrulandı (gerçek 2x2 uzamsal korelasyon aktif), UL BLER ≈0 (2/3 koşuda 0 hata, 1 koşuda 1/61 — sıradan stokastik fading), netgain −4.1…−6.8 dB (taban senaryoyla tutarlı), 1x1 regresyon kontrolü temiz |
 | **Partner karşılığı** | Kendi 2x2 implementasyonunuzda ara sıra "aniden bağlanamama" gözlerseniz, tekrarlanabilirliği doğrulamadan kalıcı bir regresyon varsaymayın — ortam etkeni olabilir |
 
+### Deney 33 — Gerçek asimetrik 2x1/1x2 MIMO (Adım 52)
+
+| | |
+|---|---|
+| **Fiziksel değişken** | Yön-bazlı gerçek anten sayısı — gNB 2 antenli düğüm, UE 1 antenli düğüm (kendi RU HW'sinde) |
+| **Bizim knob** | `..._2x1.conf` çiftinde her düğüme kendi GERÇEK `nb_tx`/`nb_rx`'i verildi (gNB 2/2, UE 1/1) + kanal nesnelerinde `n_tx`/`n_rx` override (Adım 51/52) |
+| **Kök neden (bizde, önceki hatalı versiyon)** | Adım 35 (Adım 51'den önce) RU'ların kendi `nb_tx`/`nb_rx`'ini çapraz eşlemişti (gNB nb_rx=1, UE nb_rx=2) — bir düğümün GERÇEK anten sayısı karşı tarafınkiyle karışmıştı; Adım 51 `n_tx` override'ını eklese de bu hack yüzünden Deney 31 downlink 2x2+uplink 1x1'e çözülüyordu |
+| **Beklenen** | 3/3 `RRC_CONNECTED`, `n_pairs=2` **her iki yönde de** (gerçek downlink 2x1 MISO + uplink 1x2 SIMO) doğrulandı; DL/UL BLER ≈0 (2/3 koşuda 0 UL hata, 1 koşuda run sonunda 2/356 hata + gNB out-of-sync bayrağı, izole); 1x1 regresyon temiz |
+| **Partner karşılığı** | Bir kanal-nesnesinin TX/RX boyutu, GÖNDEREN'in gerçek TX anten sayısı × ALICI'nın gerçek RX anten sayısı olmalı — kendi kodunuzda bu ikisini karıştırmayın; ayrıca gNB'nizin gerçekten 1-RX-antenli bir UE'ye rank-1/diversity PDSCH gönderebildiğini doğrulayın |
+
 ---
 
 ## 4. Bizim ölçtüğümüz değerler (karşılaştırma için)
@@ -472,6 +482,7 @@ büyüklük mertebesi**.
 | 30 | Non-zero ta-Common (feeder link) | UE ön-telafiye doğru katıyor · gNB PRACH ta-Common için kaydırmıyor (gNB=platform) → ZC cyclic-shift yanlış tespiti, feeder ≳0.05ms RA bozuluyor · yalnız ~6 km çalışıyor · Adım 50 env var |
 | 31 | 2x1/1x2 MIMO düzeltmesi (yön-bazlı n_tx/n_rx) | `load_channellist()`'in yön-bazlı olmaması düzeltildi (Adım 51) · artık RRC_CONNECTED, 0 kopma, BLER~0, SINR 39.0dB · ama downlink 2x2+uplink 1x1'e çözülüyor, gerçek asimetrik korelasyon henüz uçtan uca kanıtlanmadı |
 | 32 | Gerçek 2x2 MIMO yeniden test | Adım 36'nın "artık bağlanamıyor" bulgusu 3/3 koşuda üretilemedi · n_pairs=4 doğrulandı · UL BLER≈0, netgain −4.1…−6.8dB taban ile tutarlı · 1x1 regresyon temiz · şu an bilinen açık bir 2x2 regresyonu yok |
+| 33 | Gerçek asimetrik 2x1/1x2 MIMO (Adım 52) | Her düğüme kendi gerçek anten sayısı verildi (gNB 2/2, UE 1/1) · 3/3 RRC_CONNECTED, n_pairs=2 HER İKİ yönde de · DL/UL BLER≈0 (1 koşuda run sonunda izole UL episodu) · Adım 35'in "asimetrik korelasyon uçtan uca kanıtlanmadı" açık konusu kapandı |
 
 ### 4.3 Yükseklik açısı — LOS netgain teorik eğrisi (tüm senaryolar için ortak)
 

@@ -2246,11 +2246,15 @@ dispatch'ini içeriyor.
   projedeki TÜM kanal modellerinin paylaştığı bir mekanizma) asimetrik
   bağlantılarda uplink/downlink modellerine aynı yerel `nb_tx`/`nb_rx`
   çiftini veriyor, yön-bazlı doğru eşlemeyi kaybediyordu - **Adım 51'de
-  (2026-09-19) `load_channellist()`'e opt-in yön-bazlı override eklenerek
-  düzeltildi, Deney 31'de RRC_CONNECTED doğrulandı** - ama bu belirli config
-  çifti downlink 2x2 + uplink 1x1'e çözülüyor, gerçek asimetrik (n_pairs=2)
-  korelasyon hâlâ uçtan uca kanıtlanmadı (ayrı bir iş). 4x4 hâlâ
-  desteklenmiyor (bilinçli `AssertFatal`).
+  (2026-09-19) `load_channellist()`'e opt-in yön-bazlı `n_tx`/`n_rx`
+  override eklenerek düzeltildi, Deney 31'de RRC_CONNECTED doğrulandı** -
+  ama o config çifti (RU'ların kendi `nb_tx`/`nb_rx`'i çapraz eşlenmiş bir
+  hack'le) downlink 2x2 + uplink 1x1'e çözülüyordu. **Adım 52'de
+  (2026-09-19) düzeltildi**: her düğüme kendi GERÇEK anten sayısı verildi
+  (gNB 2/2, UE 1/1) ve `n_tx`/`n_rx` override'ları buna göre ayarlandı -
+  **Deney 33'te 3/3 koşuda `n_pairs=2` her iki yönde de doğrulandı, gerçek
+  asimetrik (downlink 2x1 MISO + uplink 1x2 SIMO) korelasyon artık uçtan uca
+  kanıtlı.** 4x4 hâlâ desteklenmiyor (bilinçli `AssertFatal`).
   **Ka-bant DS tabloları: Adım 32'de eklendi** -
   önceden her zaman S-bant satırı okunuyordu, artık `center_freq`'e göre doğru
   tablo (Tablo 6.7.2-1b..8b) seçiliyor; bu projede kanıtlanmış bir Ka-bant
@@ -3713,3 +3717,62 @@ etkilenmedi. `HAPS_MIMARI.md`'nin "Bilinen sınırlar" tablosu ve
 `HAPS_CALISTIRMA_REHBERI.md`'nin Senaryo 8 satırı buna göre güncellendi.
 Gerçek n_pairs=2 asimetrik korelasyonu uçtan uca kanıtlamak (gerçekten
 alıcı-anten-kısıtlı bir tek yön) ayrı bir Adım olarak kalıyor.
+
+---
+
+### Adım 52 — Gerçek asimetrik 2x1/1x2: `..._2x1.conf` çiftinin RU'larına düğüm-bazlı gerçek anten sayısı
+
+Kullanıcı isteği: "gerçek asimetrik 2x1/1x2 senaryosunu tasarlayalım" — Adım
+51'in bıraktığı "bu config çifti downlink 2x2 + uplink 1x1'e çözülüyor" açık
+konusunu kapatmak.
+
+**Kök neden analizi**: `random_channel.c:2564-2567` okundu — Adım 51'in
+eklediği override sadece `n_tx` değil, `n_rx` için de var
+(`CHANNELMOD_MODEL_NRX_PNAME`, `sim.h:442`), ama mevcut `..._2x1.conf` çifti
+hiç kullanmıyordu. Bunun yerine Adım 35 (Adım 51'den ÖNCE, `n_tx` override'ı
+henüz yokken) RU'ların kendi `nb_tx`/`nb_rx`'ini çapraz eşlemişti (gNB
+`nb_tx=2/nb_rx=1`, UE `nb_tx=1/nb_rx=2`) — bir düğümün kendi GERÇEK anten
+sayısını temsil etmesi gereken değerler, karşı tarafın değerleriyle
+karıştırılmıştı. `radio/rfsimulator/simulator.cpp:1309-1324` (`rxAddInput`
+çağrı döngüsü) okundu: bir kanal nesnesinin `n_rx`'i BU sürecin kendi gerçek
+RX anten sayısıyla (`aarx` döngüsü `nbAnt` = bu düğümün kendi RX sayısı
+üzerinden), `n_tx`'i ise KARŞI tarafın gerçek TX anten sayısıyla (tel üzerinden
+gelen akış sayısı, `ptr->nbAnt`) eşleşmek zorunda — Adım 51'in `n_tx`
+override'ı bunu doğru yapıyordu ama RU'ların kendi `nb_rx`'i hâlâ çapraz
+olduğu için `n_rx` (override edilmediği için varsayılan = yerel `nb_rx`) yanlış
+kalıyordu.
+
+**[Dosya]** `haps_test/gnb.haps_mobile_ntn_38811_2x1.conf`
+```
+~ Değiştirildi: RUs.nb_rx 1 -> 2 (gerçek 2-antenli gNB, kanıtlanmış 2x2 gNB'siyle
+  aynı), pusch_AntennaPorts 1 -> 2 (gerçek nb_rx=2'ye uysun diye)
++ Eklendi: UL kanal nesnesine (rfsimu_channel_ue0) n_rx=2 (açıklık için, zaten
+  varsayılandı)
+~ Değiştirildi: n_tx=1 override'ı (Adım 51'den) korundu - zaten doğruydu
+```
+
+**[Dosya]** `haps_test/nrue.haps_mobile_ntn_38811_2x1.conf`
+```
+~ Değiştirildi: RUs.nb_rx 2 -> 1 (gerçek 1-antenli UE, taban 1x1 UE'siyle aynı)
++ Eklendi: DL kanal nesnesine (rfsimu_channel_enB0) n_rx=1 (açıklık için, zaten
+  varsayılandı)
+~ Değiştirildi: n_tx=2 override'ı (Adım 51'den) korundu - zaten doğruydu
+```
+
+**Kod değişikliği yok** - `random_channel.c`'nin `n_tx`/`n_rx` override
+mekanizması Adım 51'de zaten genel/tam olarak eklenmişti, bu Adım sadece onu
+doğru kullanan bir config tasarımı.
+
+**Test (Deney 33, 3 bağımsız koşu)**: 3/3 `RRC_CONNECTED`, `HAPS_DEBUG_TDL` her
+koşuda HER İKİ tarafta da `n_pairs=2` doğruladı (Deney 31'in "DL 2x2 + UL 1x1"
+cross-match'i artık yok) - DL BLER ≈0 (0.0025-0.0042), UL BLER ≈0 (2/3 koşuda 0
+hata, 1 koşuda run'ın son saniyelerinde 2/356 hata + gNB "out-of-sync" bayrağı,
+toparlanma gözlemlenemedi - izole, düşük öncelikli bir not). 1x1 regresyon
+kontrolü temiz. Detay: `HAPS_TEST_GUNLUGU.md` Deney 33.
+
+**Sonuç**: ✅ Adım 51'in bıraktığı açık konu kapandı - gerçek asimetrik
+(downlink 2x1 MISO + uplink 1x2 SIMO, `n_pairs=2` her iki yönde de) artık uçtan
+uca kanıtlandı, hem kanal-modeli hem PHY (gerçek 1-RX-antenli UE'ye 2 TX'ten
+rank-1 PDSCH, gerçek 1-TX-antenli UE'den 2-RX-antenli gNB'ye SIMO alım)
+seviyesinde. `HAPS_MIMARI.md` ve `HAPS_CALISTIRMA_REHBERI.md` buna göre
+güncellendi.

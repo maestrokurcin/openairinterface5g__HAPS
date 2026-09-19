@@ -234,7 +234,7 @@ yönde değişmesini beklediğimiz — deneyin işi bunu doğrulamak ya da çür
 | Değişiklik | Nasıl | Beklenen yön |
 |---|---|---|
 | SISO → **2x2 MIMO** | `..._2x2.conf` çifti | RRC_CONNECTED, sağlıklı DL/UL (Deney 32 — 3/3, `n_pairs=4` doğrulandı) |
-| 2x1 SIMO/MISO | `..._2x1.conf` çifti | RRC_CONNECTED (Adım 51/Deney 31 düzeltmesinden sonra) — ama senaryo downlink 2x2 + uplink 1x1'e çözülüyor, gerçek asimetrik korelasyon henüz uçtan uca kanıtlanmadı |
+| 2x1 SIMO/MISO | `..._2x1.conf` çifti | RRC_CONNECTED, gerçekten asimetrik (Adım 52/Deney 33 — DL 2x1 MISO + UL 1x2 SIMO, `n_pairs=2` her iki yönde de, 3/3) |
 
 ### 4g'. Çoklu-kullanıcı / çoklu-ışın (config dosyası seçimi ile)
 
@@ -2303,3 +2303,60 @@ tabanında bilinen, açık bir MIMO 2x2 regresyonu yok.**
 **Sonuç**: ✅ Adım 36'nın açık konusu kapatıldı — gerçek 2x2 MIMO (hem TX hem RX
 tarafında gerçek 2x2, `n_pairs=4`) güvenilir şekilde bağlanıyor, taban senaryo ile
 aynı sağlıkta. Dev günlüğü Bölüm 4'teki "⚠️ AÇIK KONU" notu buna göre güncellendi.
+
+---
+
+### Deney 33 — Gerçek asimetrik 2x1/1x2 MIMO: Adım 52 config düzeltmesi sonrası uçtan uca test
+
+- **Tarih**: 2026-09-19
+- **Hipotez**: Deney 31'in bulduğu "downlink 2x2 + uplink 1x1'e çözülüyor" sorunu,
+  `..._2x1.conf` çiftinin RU'larının kendi `nb_tx`/`nb_rx` değerlerini çapraz
+  eşlemesinden (Adım 35'in, Adım 51'den ÖNCEKİ dönemden kalma hack'i) kaynaklanıyordu
+  — `load_channellist()`'in artık `n_tx` YANINDA `n_rx`'i de override edebildiği
+  (Adım 51, `sim.h` `CHANNELMOD_MODEL_NRX_PNAME`, o zaman config'te hiç kullanılmamıştı)
+  görülünce: her düğüme kendi GERÇEK anten sayısını verip (gNB 2/2, UE 1/1),
+  `n_tx`/`n_rx` override'larını doğru bırakırsak, gerçekten dikdörtgen (n_pairs=2)
+  bir bağlantı HER İKİ yönde de uçtan uca kurulur mu?
+- **Değişen (Adım 52, config-only, kod değişikliği yok)**:
+  - gNB (`gnb.haps_mobile_ntn_38811_2x1.conf`): `RUs.nb_rx` 1→2 (gerçek 2-antenli
+    gNB), `pusch_AntennaPorts` 1→2 (gerçek `nb_rx`'e uysun diye), UL kanal nesnesine
+    (`rfsimu_channel_ue0`) açıklık için `n_rx=2` eklendi (zaten varsayılandı).
+  - UE (`nrue.haps_mobile_ntn_38811_2x1.conf`): `RUs.nb_rx` 2→1 (gerçek 1-antenli
+    UE, taban 1x1 UE ile aynı), DL kanal nesnesine (`rfsimu_channel_enB0`) açıklık
+    için `n_rx=1` eklendi (zaten varsayılandı).
+  - `n_tx` override'ları (Adım 51'den, gNB tarafı `n_tx=1`, UE tarafı `n_tx=2`)
+    değişmedi — zaten doğruydu.
+- **gNB/UE komutları**: Deney 32 ile birebir aynı, sadece `_2x1.conf` dosyaları.
+- **Çalıştırma süresi**: gNB 65 sn / UE 55 sn, 3 bağımsız koşu.
+
+**Ölçülen**
+
+| Koşu | Senkron | RRC | DL HARQ | DL BLER | UL HARQ | UL BLER | UL SNR | Ort. SINR | Not |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 (RNTI b423) | frame 768'e kadar | ✅ CONNECTED | 32/0/0/0 | 0.00424 | 304/0/0/0 (0 hata) | 0.00000 | 16.9 dB | 40.0 dB | temiz `Bye.` |
+| 2 (RNTI e6ae) | — | ✅ CONNECTED | 35/0/0/0 | 0.00309 | 341/0/0/0 (0 hata) | 0.00000 | 17.3–17.7 dB | 39.8 dB | temiz `Bye.` |
+| 3 (RNTI 51e3) | — | ✅ CONNECTED | 37/0/0/0 | 0.00250 | 356/2/2/2 (2 hata, 10 DTX, koşunun sonunda) | 0.19 (pencere) | 17.5 dB | 39.6–39.8 dB | gNB tarafı frame 325'te "out-of-sync" bayrağı koydu (10 ardışık PUSCH DTX) — RRC/UE tarafında kopma yok, run zaman aşımıyla bitti, toparlanma gözlemlenemedi |
+
+`HAPS_DEBUG_TDL` **her koşuda, HER İKİ tarafta da `n_pairs=2`** doğrulandı — Deney
+31'in "DL 2x2 + UL 1x1" cross-match sonucu artık üretilmiyor, gerçekten dikdörtgen
+bir kanal her iki yönde de aktif. `netgain` −6.8…−7.9 dB (elev ~79°, LOS) — taban
+senaryoyla tutarlı.
+
+**Regresyon**: taban 1x1 senaryo yeniden koşuldu, `RRC_CONNECTED`, temiz.
+
+**Yorum**: 3/3 RRC_CONNECTED, kanal boyutu doğru (n_pairs=2 iki yönde de) — hem
+kanal-modeli seviyesinde (haps_R_sqrt_21_corr korelasyonu) hem PHY seviyesinde
+(gNB'nin gerçekten 1-RX-antenli bir UE'ye 2 TX antenden rank-1 PDSCH göndermesi,
+UE'nin gerçekten 1-TX-antenli sinyalinin gNB'de 2 RX antenle alınıp birleştirilmesi)
+uçtan uca çalışıyor. Koşu 3'teki geç UL episodu (2/356 hata, 10 DTX, run'ın son
+saniyelerinde) izole bir örnek — 1x1/2x2 senaryolarında da (Deney 4, 27, 32-koşu-3)
+görülen sıradan stokastik fading-kaynaklı dip paterniyle tutarlı; ama bu asimetrik
+senaryoda ilk kez gNB'nin "out-of-sync" bayrağını görmemiz ve run'ın toparlanmayı
+göstermeden bitmesi nedeniyle, rank-1 diversity marjının simetrik konfigürasyonlara
+göre biraz daha dar olma ihtimali **kesin dışlanamaz** — daha uzun run'larla (3+
+dakika) veya daha fazla koşuyla doğrulanabilir, şimdilik düşük öncelikli bir not.
+
+**Sonuç**: ✅ Hipotez doğrulandı — gerçek asimetrik 2x1/1x2 MIMO (downlink genuine
+2x1 MISO + uplink genuine 1x2 SIMO, `n_pairs=2` iki yönde de) artık uçtan uca
+kanıtlandı. Adım 35'in bıraktığı "gerçek asimetrik korelasyon henüz uçtan uca
+egzersiz edilmiyor" açık konusu kapandı.
