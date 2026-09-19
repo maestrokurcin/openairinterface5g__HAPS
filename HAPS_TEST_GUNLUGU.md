@@ -233,8 +233,8 @@ yönde değişmesini beklediğimiz — deneyin işi bunu doğrulamak ya da çür
 
 | Değişiklik | Nasıl | Beklenen yön |
 |---|---|---|
-| SISO → **2x2 MIMO** | `..._2x2.conf` çifti | İyi koşullu kanalda RI=2 → DL goodput ~2×; kötü kanalda fark yok |
-| 2x1 SIMO/MISO | `..._2x1.conf` çifti | ⚠️ RRC'ye ulaşmaz (Adım 35) — sadece TDL kodu testi |
+| SISO → **2x2 MIMO** | `..._2x2.conf` çifti | RRC_CONNECTED, sağlıklı DL/UL (Deney 32 — 3/3, `n_pairs=4` doğrulandı) |
+| 2x1 SIMO/MISO | `..._2x1.conf` çifti | RRC_CONNECTED (Adım 51/Deney 31 düzeltmesinden sonra) — ama senaryo downlink 2x2 + uplink 1x1'e çözülüyor, gerçek asimetrik korelasyon henüz uçtan uca kanıtlanmadı |
 
 ### 4g'. Çoklu-kullanıcı / çoklu-ışın (config dosyası seçimi ile)
 
@@ -2242,3 +2242,64 @@ sayısı 1'e düşürülmüş, gNB TX=2 kalırken) gerekir, bu da ayrı bir iş.
 RRC'ye ulaşıyor, sağlıklı çalışıyor, hiçbir mevcut config etkilenmedi. ⚠️ Ama
 bu, gerçek asimetrik (n_pairs=2) korelasyonun uçtan uca kanıtlanması demek
 değil — o ayrı bir Adım/Deney gerektiriyor.
+
+---
+
+### Deney 32 — Gerçek 2x2 MIMO yeniden test edildi: Adım 36'nın "bağlanamıyor" bulgusu artık üretilemiyor
+
+- **Tarih**: 2026-09-19
+- **Hipotez**: Adım 36'da (2026-09-05/06) MIMO 2x2 (`gnb/nrue.haps_mobile_ntn_38811_2x2.conf`,
+  Adım 31'de kanıtlanmış) bu makinede aniden bağlanamaz hale gelmişti — izolasyon
+  testiyle Adım 36'nın kendi değişiklikleriyle ilgisi olmadığı kanıtlanmış ama kök
+  neden bulunamamıştı, "ayrı, açık bir regresyon" olarak not düşülmüştü. O tarihten
+  bu yana (Adım 39/40/41 büyük-ölçek kalibrasyon/donma bug'ı düzeltmesi dahil çok
+  sayıda başka değişiklik oldu) 2x2 hiç yeniden test edilmemişti. Soru: sorun hâlâ
+  var mı, yoksa o dönemin ortam etkeni/yan etkisi miydi?
+- **Baz senaryoya göre değişen**: yok — kod/config Adım 31'den beri 2x2 için
+  değişmedi; bu saf bir yeniden-test.
+- **gNB komutu**:
+  ```
+  MALLOC_ARENA_MAX=1 HAPS_DEBUG_38811=1 HAPS_DEBUG_TDL=1 \
+    ./ran_build/build/nr-softmodem -O ../haps_test/gnb.haps_mobile_ntn_38811_2x2.conf --rfsim
+  ```
+- **UE komutu**:
+  ```
+  MALLOC_ARENA_MAX=1 HAPS_DEBUG_38811=1 HAPS_DEBUG_TDL=1 \
+    ./ran_build/build/nr-uesoftmodem -O ../haps_test/nrue.haps_mobile_ntn_38811_2x2.conf --rfsim
+  ```
+- **Çalıştırma süresi**: gNB 65 sn / UE 55 sn (`timeout`), 3 bağımsız koşu (kural 7 —
+  stokastik/küçük-ölçek etkiler 3+ koşu gerektirir)
+
+**Ölçülen**
+
+| Koşu | Senkron | RRC | DL HARQ (0/1/2/3) | DL BLER | UL HARQ | UL BLER | UL SNR | Ort. SINR | Kapanış |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 (RNTI 24b0) | `decoded_frame_rx=796` | ✅ `RRC_CONNECTED` + `RRCSetupComplete` | 14/0/0/0 | 0.02824 | 125/0/0/0 (0 hata) | 0.00000 | 17.1–17.4 dB | 40.0 dB | temiz `Bye.` |
+| 2 (RNTI 94e1) | `decoded_frame_rx=796` | ✅ aynı | 12/0/0/0 | 0.03487 | 112/0/0/0 (0 hata) | 0.00000 | 17.4 dB | 39.4 dB | temiz `Bye.` |
+| 3 (RNTI 321d) | (senkron oldu, frame kaydedilmedi) | ✅ aynı | 7/0/0/0 | 0.05905 | 61/1/1/1 (1 hata, 4 DTX) | 0.00027 | 32.4 (+17.4) dB | 38.5 dB | temiz `Bye.` |
+
+`HAPS_DEBUG_TDL` her koşuda `n_pairs=4` (gerçek 2x2 uzamsal korelasyon aktif,
+SISO'ya düşmüyor) doğruladı. `netgain` her koşuda −4.1…−6.8 dB (elev ~78.7–78.8°,
+LOS, σ_SF=0.72dB) — Bölüm 4.1'deki taban senaryo değeriyle (~−5.7dB) tutarlı,
+kalibrasyon sapması yok. Koşu 3'teki 1 UL hatası/4 DTX, Deney 4/27'de görülen
+sıradan stokastik HARQ-toparlanan fading episodu paterniyle tutarlı, yeni bir
+sorun değil.
+
+**Regresyon** (aynı oturumda): taban 1x1 senaryo (`gnb/nrue.haps_mobile_ntn_38811.conf`,
+değişmemiş) yeniden koşuldu — `decoded_frame_rx=822`, `RRC_CONNECTED` ulaşıldı,
+temiz kapanış. Etkilenmedi.
+
+**Yorum**: 3/3 temiz bağlantı, hiçbir çökme/assert/segfault yok — Adım 36'nın kayda
+geçirdiği "2x2 artık bağlanamıyor" davranışı bu makinede artık üretilemiyor. En
+olası açıklama: o zamanki arıza, o oturuma özgü bir ortam etkeniydi (not "muhtemelen
+bu oturumdaki çok sayıda arka arkaya test/Docker çalıştırmasından kalan bir durum"
+Adım 36'da zaten düşülmüştü) VE/VEYA Adım 39/40/41'in büyük-ölçek rastgelelik
+donma bug'ı düzeltmesi (LOS/NLOS + gölge sönümleme + O2I'nin saniyede bir yeniden
+çekilmesi, `path_loss_dB`'nin int16 taşması) yan etki olarak düzeltmiş olabilir —
+2x2 o düzeltmeden sonra hiç yeniden test edilmemişti. Kesin ayrım yapılamaz (o
+zamanki arızanın canlı bir tekrarı alınamadı), ama sonuç aynı: **şu an kod
+tabanında bilinen, açık bir MIMO 2x2 regresyonu yok.**
+
+**Sonuç**: ✅ Adım 36'nın açık konusu kapatıldı — gerçek 2x2 MIMO (hem TX hem RX
+tarafında gerçek 2x2, `n_pairs=4`) güvenilir şekilde bağlanıyor, taban senaryo ile
+aynı sağlıkta. Dev günlüğü Bölüm 4'teki "⚠️ AÇIK KONU" notu buna göre güncellendi.

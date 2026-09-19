@@ -397,6 +397,27 @@ Taban senaryo (aksi belirtilmedikçe): banliyö/kırsal, zenit (yükseklik açı
 | **Beklenen** | UE `ta-Common`'ı doğru alıp ön-telafiye katıyor (`N_Common_Ta` ölçekleniyor). AMA gNB PRACH alıcısı platform saatine referanslı (gNB = platform), ta-Common için kaydırmıyor → UE ön-telafisi PRACH'ı erken getiriyor, ZC cyclic-shift yanlış tespiti (feeder ≳0.05ms). Yalnız çok kısa besleme linki (~6 km) çalışıyor |
 | **Partner karşılığı** | Transparent modeli gerçekten test etmek için gNB'yi ayrı bir yer düğümü olarak modelleyin (PRACH RX referansı besleme gecikmesiyle kaydırılmış) |
 
+### Deney 31 — 2x1/1x2 MIMO düzeltmesi: yön-bazlı `n_tx`/`n_rx`
+
+| | |
+|---|---|
+| **Fiziksel değişken** | Asimetrik anten sayısı (SIMO/MISO) — uplink ve downlink'in kendi yönünde farklı TX/RX anten sayısı |
+| **Bizim knob** | `load_channellist()`'e (Adım 51) opt-in yön-bazlı `n_tx`/`n_rx` config alanı; `..._2x1.conf` çifti |
+| **Kök neden (bizde)** | `random_channel.c`'nin paylaşılan `load_channellist()`'i, uplink/downlink kanal nesnelerine aynı yerel `nb_tx`/`nb_rx` çiftini veriyordu — yön-bazlı doğru eşleme kayboluyordu (gNB kendi TX'ini görüyordu, UE'nin değil) |
+| **Beklenen** | Düzeltmeden önce: `synch Failed` sürekli, RRC hiç ulaşmaz. Düzeltmeden sonra: `RRC_CONNECTED`, 0 kopma, BLER ~0, SINR 39.0 dB |
+| **Partner karşılığı** | Kendi kanal-nesne yükleme kodunuzda uplink/downlink'in TX/RX anten sayılarını bağımsız/yön-doğru taşıdığınızdan emin olun |
+| **Not** | Bu config çifti "cross-matched" transport akışları yüzünden aslında **downlink 2x2 + uplink 1x1**'e çözülüyor — gerçek asimetrik (dikdörtgen) korelasyon matrisi (`n_pairs=2`) kod olarak doğru çalışıyor ama henüz uçtan uca kanıtlanmadı |
+
+### Deney 32 — Gerçek 2x2 MIMO yeniden test edildi
+
+| | |
+|---|---|
+| **Fiziksel değişken** | yok — saf yeniden-test, kod/config Adım 31'den beri değişmedi |
+| **Bizim knob** | `..._2x2.conf` çifti, 3 bağımsız koşu |
+| **Arka plan** | Adım 36'da (2026-09-05/06) bu makinede geçici olarak bağlanamaz hale gelmişti, kök nedeni bulunamamıştı |
+| **Beklenen** | 3/3 `RRC_CONNECTED`, `n_pairs=4` doğrulandı (gerçek 2x2 uzamsal korelasyon aktif), UL BLER ≈0 (2/3 koşuda 0 hata, 1 koşuda 1/61 — sıradan stokastik fading), netgain −4.1…−6.8 dB (taban senaryoyla tutarlı), 1x1 regresyon kontrolü temiz |
+| **Partner karşılığı** | Kendi 2x2 implementasyonunuzda ara sıra "aniden bağlanamama" gözlerseniz, tekrarlanabilirliği doğrulamadan kalıcı bir regresyon varsaymayın — ortam etkeni olabilir |
+
 ---
 
 ## 4. Bizim ölçtüğümüz değerler (karşılaştırma için)
@@ -449,6 +470,8 @@ büyüklük mertebesi**.
 | 28 | Düşük açı senkron sorunu | kök neden: 27°'de ~184 Hz DL taşıyıcı Doppler, `ue-fo-compensation` varsayılan kapalı → hücre araması ~2100 fail (zenit ~30) · düzeltme Adım 49: `nrue.conf`'a `ue-fo-compensation=1` · düzeltme sonrası senkron oranı: **52° (15k) 5/5 %100** (netgain −6…−9), **27° (35k) 2/5 %40** (netgain −11…−13, ~−12 dB yakalama uçurumu + NLOS ~%8 ölü) · düşük-açıya özgü, yapısal |
 | 29 | Koffset süpürmesi | HAPS'ta Koffset=1 doğru · ≥4 UL güç/TA döngüsü bozulur · ≥5 SIB19 yakalanamaz → bağlantı yok · izole yükseltme bozuyor (LEO'da 40 çalışır ama ta-Common+TIMERS ile) |
 | 30 | Non-zero ta-Common (feeder link) | UE ön-telafiye doğru katıyor · gNB PRACH ta-Common için kaydırmıyor (gNB=platform) → ZC cyclic-shift yanlış tespiti, feeder ≳0.05ms RA bozuluyor · yalnız ~6 km çalışıyor · Adım 50 env var |
+| 31 | 2x1/1x2 MIMO düzeltmesi (yön-bazlı n_tx/n_rx) | `load_channellist()`'in yön-bazlı olmaması düzeltildi (Adım 51) · artık RRC_CONNECTED, 0 kopma, BLER~0, SINR 39.0dB · ama downlink 2x2+uplink 1x1'e çözülüyor, gerçek asimetrik korelasyon henüz uçtan uca kanıtlanmadı |
+| 32 | Gerçek 2x2 MIMO yeniden test | Adım 36'nın "artık bağlanamıyor" bulgusu 3/3 koşuda üretilemedi · n_pairs=4 doğrulandı · UL BLER≈0, netgain −4.1…−6.8dB taban ile tutarlı · 1x1 regresyon temiz · şu an bilinen açık bir 2x2 regresyonu yok |
 
 ### 4.3 Yükseklik açısı — LOS netgain teorik eğrisi (tüm senaryolar için ortak)
 

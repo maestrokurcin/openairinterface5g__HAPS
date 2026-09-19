@@ -2229,19 +2229,28 @@ dispatch'ini içeriyor.
   yolunda zaten var olan yaklaşım) HAPS TDL'ye de uygulandı, yeni
   `gnb/nrue.haps_mobile_ntn_38811_2x2.conf` çiftiyle gerçek bir rfsim
   bağlantısıyla doğrulandı (`RRCSetupComplete`, sürdürülen sağlıklı DL/UL
-  trafiği). **⚠️ AÇIK KONU (Adım 36'da bulundu, kökü henüz bulunmadı)**: bu
-  makinede MIMO 2x2 artık bağlanamıyor - Adım 36'nın fizik değişiklikleri
-  şüpheliydi ama izolasyon testiyle (Adım 31'in birebir orijinal kodu ile
-  tekrar denendi) bunun **Adım 36 ile hiç ilgisi olmadığı** kanıtlandı; ayrı,
-  henüz araştırılmamış bir regresyon/kararsızlık. **2x1/1x2 (SIMO/MISO): Adım 35'te `haps_tdl.c` seviyesinde
-  eklendi ve kod olarak doğrulandı** (`n_pairs=2`, çökme yok, makul
-  korelasyonlu değerler) ama gerçek bir RRC bağlantısı kurulamadı -
-  `random_channel.c`'nin `load_channellist()`'i (HAPS'a özel olmayan,
+  trafiği). Adım 36'da (2026-09-05/06) bu makinede geçici olarak bağlanamaz
+  hale gelmiş (Adım 36'nın kendi değişiklikleriyle ilgisi olmadığı izolasyon
+  testiyle kanıtlanmıştı, kök nedeni bulunamamıştı) ama **Deney 32'de
+  (2026-09-19) yeniden test edildi ve sorun üretilemedi** - 3/3 temiz
+  `RRC_CONNECTED`, `n_pairs=4` doğrulandı, taban senaryoyla aynı sağlıkta (0
+  UL hatası 2/3 koşuda, 3.'te 1/61 - sıradan stokastik fading, yeni bir sorun
+  değil). Muhtemel açıklama: o zamanki arıza o oturuma özgü bir ortam
+  etkeniydi ve/veya Adım 39/40/41'in büyük-ölçek rastgelelik donma bug'ı
+  düzeltmesi yan etki olarak çözmüştü - 2x2 o düzeltmeden sonra hiç yeniden
+  test edilmemişti, kesin ayrım yapılamıyor. **Şu an bilinen, açık bir MIMO
+  2x2 regresyonu yok.** **2x1/1x2 (SIMO/MISO): Adım 35'te `haps_tdl.c`
+  seviyesinde eklendi ve kod olarak doğrulandı** (`n_pairs=2`, çökme yok,
+  makul korelasyonlu değerler); gerçek bir RRC bağlantısı önce kurulamıyordu
+  çünkü `random_channel.c`'nin `load_channellist()`'i (HAPS'a özel olmayan,
   projedeki TÜM kanal modellerinin paylaştığı bir mekanizma) asimetrik
   bağlantılarda uplink/downlink modellerine aynı yerel `nb_tx`/`nb_rx`
-  çiftini veriyor, yön-bazlı doğru eşlemeyi kaybediyor - bilinçli olarak
-  kapsam dışı bırakıldı (HAPS projesinin dışına çıkan, paylaşılan bir mimari
-  düzeltme gerektiriyor). 4x4 hâlâ desteklenmiyor (bilinçli `AssertFatal`).
+  çiftini veriyor, yön-bazlı doğru eşlemeyi kaybediyordu - **Adım 51'de
+  (2026-09-19) `load_channellist()`'e opt-in yön-bazlı override eklenerek
+  düzeltildi, Deney 31'de RRC_CONNECTED doğrulandı** - ama bu belirli config
+  çifti downlink 2x2 + uplink 1x1'e çözülüyor, gerçek asimetrik (n_pairs=2)
+  korelasyon hâlâ uçtan uca kanıtlanmadı (ayrı bir iş). 4x4 hâlâ
+  desteklenmiyor (bilinçli `AssertFatal`).
   **Ka-bant DS tabloları: Adım 32'de eklendi** -
   önceden her zaman S-bant satırı okunuyordu, artık `center_freq`'e göre doğru
   tablo (Tablo 6.7.2-1b..8b) seçiliyor; bu projede kanıtlanmış bir Ka-bant
