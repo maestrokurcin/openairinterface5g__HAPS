@@ -2421,3 +2421,82 @@ ve frekansa-doğru-ölçeklenen bir taşıyıcı Doppler kayması üretiyor (`fd
 fading yayılımından bağımsız, ayrı bir mekanizma). Bağlı-mod 900 km/h'e kadar
 sorunsuz. Deney 25/27'nin "UE hareketi sadece fading hızını etkiliyor,
 taşıyıcı kaymasını değil" sınırlaması kapandı.
+
+---
+
+### Deney 35 — Düşük açıda pre-SIB19 Doppler acquisition: statik ön-telafi neden işe yaramıyor, ve "FO yakınsamama" gerçekten ayrı bir sorun mu?
+
+- **Tarih**: 2026-09-19
+- **Amaç**: Deney 28'in bıraktığı açık soru - "FO tahmincisi bazen yakınsamıyor"
+  (35k/27°'de) gerçekten `ue-fo-compensation`'ın kendi sağlamlığıyla ilgili ayrı,
+  bağımsız bir sorun mu, yoksa tamamen zaten bilinen ~−12 dB donmuş
+  gölge-sönümleme uçurumunun bir yansıması mı? Ayrıca: gerçek Doppler değerini
+  önceden bilip `--initial-fo` ile besleseydik (LEO'nun `--initial-fo`/`--cont-fo-comp`
+  mekanizması) yardımcı olur muydu (Deney 28'in `-180` denemesi neden işe
+  yaramamıştı)?
+
+**Bölüm 1 — `--initial-fo` neden yapısal olarak uygun değil**
+
+`nr_initial_sync.c:293-294` okundu: `--initial-fo`, PSS/SSS korelasyonundan
+ÖNCE ham örneklere doğrudan ve deterministik bir frekans kayması uyguluyor -
+gerçek bir ön-telafi (arama penceresi ipucu değil). Ama 35k'da gerçek Doppler
+değerinin **zaman içindeki evrimi** ölçüldü (`HAPS_DEBUG_38811` yok, sadece HW
+log): bağlantı anında (t=0) **~2 Hz**'den başlayıp platform loiter döngüsünün
+(periyot ~452 sn) fazına göre **doğrusala yakın büyüyerek** t=30sn'de ~66 Hz'e
+ulaşıyor. Deney 28'in "~184-200 Hz" rakamı sabit bir değer değil, bu yavaş
+sinüsün **tepe noktası** - her yeni bağlantı denemesinde gerçek başlangıç
+Doppler'i **0 ile ~200 Hz arasında rastgele bir fazda**. LEO'nun aksine (Doppler
+büyük ve edinim penceresi boyunca kabaca monoton), burada **tek bir sabit
+`--initial-fo` değeri hiçbir zaman güvenilir şekilde doğru olamaz** - bazı
+koşularda isabet eder, bazılarında gerçek değer 0'a yakınken YENİ, kendi kendine
+yarattığı bir hata ekler. **Bu, Deney 28'in `-180` denemesinin neden yardımcı
+olmadığını mekanik olarak açıklıyor** - yanlış değer seçilmiş olması değil,
+statik ön-telafinin bu platformun yavaş-loiter Doppler'i için yapısal olarak
+uygunsuz olması.
+
+**Bölüm 2 — "FO yakınsamama" ile netgain uçurumu gerçekten örtüşüyor mu?**
+
+35k/27°, baz senaryo (`ue-fo-compensation=1` zaten varsayılan, Adım 49), 5 yeni
+koşu + Deney 28'in orijinal 5 koşusuyla birleştirilmiş tablo:
+
+| Koşu | netgain (donmuş) | LOS/NLOS | RRC | synchFail | Ölçülen CFO kalıntısı |
+|---|---|---|---|---|---|
+| yeni-1 | −21.66 | NLOS | ❌ | 171 | — (yapısal ölü, ilgisiz) |
+| yeni-2 | −13.20 | LOS | ❌ | 12 | — |
+| yeni-3 | −13.43 | LOS | ❌ | 134 | — |
+| yeni-4 | −15.80 | LOS | ❌ | 677 | — |
+| yeni-5 | **−11.57** | LOS | ✅ | 187 | **19 Hz** (iyi yakınsama) |
+| Deney28-1 | −12.80 | LOS | ❌ | 7168 | — |
+| Deney28-2 | **−11.47** | LOS | ✅ | 1511 | — |
+| Deney28-3 | **−11.44** | LOS | ✅ | 268 | — |
+| Deney28-4 | −12.84 | LOS | ❌ | 6101 | — |
+| Deney28-5 | −12.92 | LOS | ❌ | 6990 | — |
+
+**9 LOS koşusunun (NLOS hariç) hepsinde sıfır istisna**: netgain ≥ −11.6 →
+3/3 başarı; netgain ≤ −12.8 → 6/6 başarısız. Hiçbir koşuda "iyi netgain ama FO
+yakınsamadı" ya da "kötü netgain ama FO kurtardı" görülmedi. Başarılı koşunun
+ölçülen CFO kalıntısı (19 Hz, küçük) FO telafisinin marj yeterliyken düzgün
+yakınsadığını doğruluyor.
+
+**Not (yeni-3→yeni-4 arası bir koşu port çakışmasıyla geçersiz sayıldı, ayrıca
+`timeout` komutunun `nr-softmodem`'in çatallanan alt sürecini öldürmediği
+keşfedildi - portu tutan yetim süreçler bıraktı, sonraki koşuları geçici olarak
+bozdu)**: `pkill -9 -f ran_build/build/nr-softmodem` ile açıkça temizlenip port
+her koşu öncesi doğrulandı, geri kalan tüm koşular temiz.
+
+**Yorum**: `ue-fo-compensation=1` (Adım 49) zaten NTN-doğru düzeltmeyi yaptı -
+kendisi kör (PSS/SSS-tabanlı) ve pre-seed gerektirmiyor, bu yüzden loiter'ın
+öngörülemeyen faz-bağımlı Doppler'i için `--initial-fo`'dan daha uygun bir
+mekanizma zaten kullanılıyor. "FO yakınsamama" diye ayrı, bağımsız bir
+sağlamlık sorunu **yok** - gözlemlenen her durum tamamen zaten belgelenmiş
+donmuş gölge-sönümleme uçurumuyla açıklanıyor. Sistem zaten mümkün olan en iyi
+noktada: NTN-doğru düzeltme (Adım 49) yapıldı, statik pre-seed (LEO tarzı)
+yapısal olarak uygunsuz olduğu için reddedilmesi doğruydu, ve kalan başarısızlık
+oranı modelin/senaryonun kendisi (ince link marjı + NLOS olasılığı) - kod veya
+config değişikliğiyle çözülecek bir şey değil.
+
+**Sonuç**: ✅ Memory/aday-deney listesindeki "düşük açıda pre-SIB19 Doppler
+acquisition'ın sağlamlaştırılması" maddesi araştırıldı ve **kapatıldı** - ayrı,
+bağımsız bir sorun olmadığı 9/9 kanıtla gösterildi; kod/config değişikliği
+gerekmiyor, sadece bir araştırma/doğrulama sonucu (test-günlüğü-yalnız, Adım
+yok).
